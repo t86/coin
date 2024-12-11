@@ -264,21 +264,20 @@ class BinanceService {
             try {
                 const response = await axios.get(`${API_BASE_URL}`, {
                     params: {
-                        path: 'fapi/v1/exchangeInfo'
+                        type: 'perpetual'
                     }
                 });
 
-                if (!response.data?.symbols) {
+                if (!response.data.symbols) {
                     return [];
                 }
 
-                return response.data.symbols
-                    .filter((symbol: any) => symbol.status === 'TRADING')
-                    .map((symbol: any) => ({
-                        symbol: symbol.symbol,
-                        baseAsset: symbol.baseAsset,
-                        quoteAsset: symbol.quoteAsset
-                    }));
+                return response.data.symbols.map((item: any) => ({
+                    symbol: item.symbol,
+                    baseAsset: item.baseAsset,
+                    quoteAsset: item.quoteAsset,
+                    exchange: 'binance'
+                }));
             } catch (error) {
                 console.error('Error fetching perpetual symbols:', error);
                 return [];
@@ -291,7 +290,7 @@ class BinanceService {
             try {
                 const response = await axios.get(`${API_BASE_URL}`, {
                     params: {
-                        path: 'ticker/price'
+                        type: 'spot'
                     }
                 });
 
@@ -301,9 +300,8 @@ class BinanceService {
 
                 return response.data.map((item: any) => ({
                     symbol: item.symbol,
-                    binancePrice: item.price,
-                    okexPrice: null,
-                    bybitPrice: null
+                    price: item.price,
+                    exchange: 'binance'
                 }));
             } catch (error) {
                 console.error('Error fetching spot prices:', error);
@@ -317,7 +315,7 @@ class BinanceService {
             try {
                 const response = await axios.get(`${API_BASE_URL}`, {
                     params: {
-                        path: 'fapi/v1/ticker/price'
+                        type: 'perpetual'
                     }
                 });
 
@@ -327,9 +325,8 @@ class BinanceService {
 
                 return response.data.map((item: any) => ({
                     symbol: item.symbol,
-                    binancePrice: item.price,
-                    okexPrice: null,
-                    bybitPrice: null
+                    price: item.price,
+                    exchange: 'binance'
                 }));
             } catch (error) {
                 console.error('Error fetching perpetual prices:', error);

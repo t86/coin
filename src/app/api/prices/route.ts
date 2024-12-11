@@ -36,14 +36,15 @@ export async function GET(request: Request) {
         // 获取分页后的价格数据
         const paginatedData = paginatedSymbols.map(symbol => {
             const price = prices.find(p => p?.symbol === symbol?.symbol);
+            console.log('price:', price);
             return {
                 symbol: symbol?.symbol || '',
                 baseAsset: symbol?.baseAsset || '',
                 quoteAsset: symbol?.quoteAsset || '',
                 prices: {
-                    binance: price?.binancePrice || null,
-                    okex: price?.okexPrice || null,
-                    bybit: price?.bybitPrice || null
+                    binance: price?.prices?.binance || null,
+                    okex: price?.prices?.okex || null,
+                    bybit: price?.prices?.bybit || null
                 }
             };
         });

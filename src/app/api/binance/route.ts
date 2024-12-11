@@ -10,16 +10,15 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const path = searchParams.get('path');
+        const type = searchParams.get('type') || 'spot';
 
         console.log('[Binance API] Request params:', {
             path,
+            type,
             searchParams: Object.fromEntries(searchParams.entries())
         });
 
-        if (!path) {
-            return NextResponse.json({ error: 'Path parameter is required' }, { status: 400 });
-        }
-
+        // 处理资金费率请求
         if (path === 'funding-rate') {
             const symbol = searchParams.get('symbol');
             if (!symbol) {
@@ -29,7 +28,7 @@ export async function GET(request: Request) {
                 );
             }
 
-            const url = `${BINANCE_FUTURES_API_URL}/funding-rate?symbol=${symbol}`;
+            const url = `${BINANCE_FUTURES_API_URL}/fundingRate?symbol=${symbol}`;
             console.log('[Binance API] Requesting funding rate:', { url });
 
             const response = await axios.get(url, {
@@ -41,23 +40,16 @@ export async function GET(request: Request) {
                 timeout: 10000
             });
 
-            console.log('[Binance API] Funding rate response:', {
-                status: response.status,
-                data: response.data
-            });
-
             return NextResponse.json(response.data);
-        } else {
-            // 对于价格查询，直接转发到对应的 API
-            const type = path.includes('fapi') ? 'perpetual' : 'spot';
-            const baseUrl = type === 'perpetual' ? BINANCE_FUTURES_API_URL : BINANCE_SPOT_API_URL;
-            const url = `${baseUrl}/${path}`;
+        }
+        
+        // 处理价格请求
+        if (!path) {
+            // 如果没有指定路径，默认获取价格
+            const baseUrl = type === 'perpetual' ? 'https://fapi.binance.com/fapi/v1' : 'https://api.binance.com/api/v3';
+            const url = type === 'perpetual' ? `${baseUrl}/ticker/price` : `${baseUrl}/ticker/price`;
 
-            console.log('[Binance API] Requesting prices:', {
-                url,
-                type,
-                baseUrl
-            });
+            console.log('[Binance API] Requesting prices:', { url, type });
 
             const response = await axios.get(url, {
                 headers: {
@@ -68,27 +60,56 @@ export async function GET(request: Request) {
                 timeout: 10000
             });
 
-            console.log('[Binance API] Price response:', {
-                status: response.status,
-                dataLength: Array.isArray(response.data) ? response.data.length : 'not array'
+            return NextResponse.json(response.data);
+        }
+
+        // 处理交易对信息请求
+        if (type === 'perpetual') {
+            const url = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
+            console.log('[Binance API] Requesting perpetual exchange info:', { url });
+
+            const response = await axios.get(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0'
+                },
+                httpsAgent: new HttpsProxyAgent(PROXY),
+                timeout: 10000
             });
 
             return NextResponse.json(response.data);
         }
+
+        // 处理其他请求
+        const baseUrl = type === 'perpetual' ? BINANCE_FUTURES_API_URL : BINANCE_SPOT_API_URL;
+        const url = `${baseUrl}/${path}`;
+
+        console.log('[Binance API] Making request:', { url, type });
+
+        const response = await axios.get(url, {
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0'
+            },
+            httpsAgent: new HttpsProxyAgent(PROXY),
+            timeout: 10000
+        });
+
+        return NextResponse.json(response.data);
     } catch (error: any) {
         console.error('[Binance API] Error:', {
             message: error.message,
-            response: {
-                status: error.response?.status,
-                statusText: error.response?.statusText,
-                data: error.response?.data
-            },
-            request: {
-                url: error.config?.url,
-                method: error.config?.method,
-                headers: error.config?.headers,
-                params: error.config?.params
-            }
+            response: error.response ? {
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: error.response.data
+            } : 'No response',
+            request: error.config ? {
+                url: error.config.url,
+                method: error.config.method,
+                headers: error.config.headers,
+                params: error.config.params
+            } : 'No config'
         });
 
         return NextResponse.json(

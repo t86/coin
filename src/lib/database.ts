@@ -9,6 +9,8 @@ class DatabaseManager {
     private symbolCache: Map<string, any[]> = new Map();
     private priceCache: Map<string, PriceData[]> = new Map();
     private initialized = false;
+    private lastCacheRefresh = 0;
+    private cacheRefreshInterval = 10000; // 10秒
 
     private constructor() {}
 
@@ -40,6 +42,14 @@ class DatabaseManager {
         } catch (error) {
             console.error('Failed to initialize database:', error);
             throw error;
+        }
+    }
+
+    private async refreshCacheIfNeeded() {
+        const now = Date.now();
+        if (now - this.lastCacheRefresh >= this.cacheRefreshInterval) {
+            await this.loadCacheFromDb();
+            this.lastCacheRefresh = now;
         }
     }
 
@@ -78,10 +88,12 @@ class DatabaseManager {
         }
     }
 
-    private loadCacheFromDb() {
+    private async loadCacheFromDb() {
         if (!this.db) throw new Error('Database not initialized');
 
         try {
+            console.log('[DatabaseManager] Refreshing cache from database...');
+            
             // 加载symbols
             const spotSymbols = this.db.prepare('SELECT * FROM symbols WHERE marketType = ?').all('spot');
             const perpetualSymbols = this.db.prepare('SELECT * FROM symbols WHERE marketType = ?').all('perpetual');
@@ -89,10 +101,28 @@ class DatabaseManager {
             this.symbolCache.set('perpetual', perpetualSymbols);
 
             // 加载prices
-            const spotPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all('spot');
-            const perpetualPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all('perpetual');
+            const spotPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all('spot')
+                .map(row => ({
+                    symbol: row.symbol,
+                    prices: {
+                        binance: row.binancePrice,
+                        okex: row.okexPrice,
+                        bybit: row.bybitPrice
+                    }
+                }));
+            const perpetualPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all('perpetual')
+                .map(row => ({
+                    symbol: row.symbol,
+                    prices: {
+                        binance: row.binancePrice,
+                        okex: row.okexPrice,
+                        bybit: row.bybitPrice
+                    }
+                }));
             this.priceCache.set('spot', spotPrices);
             this.priceCache.set('perpetual', perpetualPrices);
+            
+            console.log('[DatabaseManager] Cache refreshed successfully');
         } catch (error) {
             console.error('Error loading cache from database:', error);
             throw error;
@@ -108,11 +138,13 @@ class DatabaseManager {
 
     async getSymbols(marketType: 'spot' | 'perpetual'): Promise<any[]> {
         await this.initializeDb();
+        await this.refreshCacheIfNeeded();
         return this.symbolCache.get(marketType) || [];
     }
 
     async getPriceData(marketType: 'spot' | 'perpetual'): Promise<PriceData[]> {
         await this.initializeDb();
+        await this.refreshCacheIfNeeded();
         return this.priceCache.get(marketType) || [];
     }
 
@@ -145,34 +177,67 @@ class DatabaseManager {
         }
     }
 
-    async updatePrices(marketType: 'spot' | 'perpetual', prices: PriceData[]) {
+    async updatePrices(marketType: 'spot' | 'perpetual', prices: PriceData[], exchange: string) {
         await this.initializeDb();
         if (!this.db) throw new Error('Database not initialized');
 
         try {
+            // 首先获取现有价格数据
+            const existingPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all(marketType);
+            const existingPriceMap = new Map(existingPrices.map(p => [p.symbol, p]));
+
+            // 准备更新语句
             const stmt = this.db.prepare(`
-                INSERT OR REPLACE INTO prices (
+                INSERT INTO prices (
                     symbol, marketType, binancePrice, okexPrice, bybitPrice, updatedAt
                 ) VALUES (
                     @symbol, @marketType, @binancePrice, @okexPrice, @bybitPrice, @updatedAt
                 )
+                ON CONFLICT(symbol, marketType) DO UPDATE SET
+                    binancePrice = CASE 
+                        WHEN @exchange = 'binance' THEN @binancePrice 
+                        ELSE prices.binancePrice 
+                    END,
+                    okexPrice = CASE 
+                        WHEN @exchange = 'okex' THEN @okexPrice 
+                        ELSE prices.okexPrice 
+                    END,
+                    bybitPrice = CASE 
+                        WHEN @exchange = 'bybit' THEN @bybitPrice 
+                        ELSE prices.bybitPrice 
+                    END,
+                    updatedAt = @updatedAt
             `);
 
             const transaction = this.db.transaction((prices: PriceData[]) => {
                 for (const price of prices) {
-                    stmt.run({
+                    const existing = existingPriceMap.get(price.symbol);
+                    const params = {
                         symbol: price.symbol,
                         marketType,
-                        binancePrice: price.binancePrice,
-                        okexPrice: price.okexPrice,
-                        bybitPrice: price.bybitPrice,
-                        updatedAt: Date.now()
-                    });
+                        binancePrice: exchange === 'binance' ? price.price : (existing?.binancePrice || null),
+                        okexPrice: exchange === 'okex' ? price.price : (existing?.okexPrice || null),
+                        bybitPrice: exchange === 'bybit' ? price.price : (existing?.bybitPrice || null),
+                        updatedAt: Date.now(),
+                        exchange
+                    };
+                    stmt.run(params);
                 }
             });
 
             transaction(prices);
-            this.priceCache.set(marketType, prices);
+            
+            // 更新缓存
+            const updatedPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all(marketType)
+                .map(row => ({
+                    symbol: row.symbol,
+                    prices: {
+                        binance: row.binancePrice,
+                        okex: row.okexPrice,
+                        bybit: row.bybitPrice
+                    }
+                }));
+            this.priceCache.set(marketType, updatedPrices);
         } catch (error) {
             console.error('Error updating prices:', error);
             throw error;

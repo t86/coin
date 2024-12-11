@@ -3,7 +3,7 @@ import DatabaseManager from './database';
 import BinanceService from '@/services/binance';
 import BybitService from '@/services/bybit';
 import OkexService from '@/services/okex';
-import { SymbolStandardizationService } from '@/services/symbol-standardization';
+import { SymbolNormalizer } from '@/services/symbol-normalizer';
 
 class DataSyncService {
     private static instance: DataSyncService;
@@ -90,43 +90,88 @@ class DataSyncService {
     private async syncPrices() {
         try {
             // 同步现货价格
-            const spotPrices = await Promise.all([
+            const [binanceSpotPrices, bybitSpotPrices, okexSpotPrices] = await Promise.all([
                 BinanceService.getSpotPrices(),
                 BybitService.getSpotPrices(),
                 OkexService.getSpotPrices()
             ]);
-            await DatabaseManager.updatePrices('spot', this.mergePrices(spotPrices));
+
+            // 分别更新每个交易所的价格
+            await DatabaseManager.updatePrices('spot', binanceSpotPrices, 'binance');
+            await DatabaseManager.updatePrices('spot', bybitSpotPrices, 'bybit');
+            await DatabaseManager.updatePrices('spot', okexSpotPrices, 'okex');
 
             // 同步永续合约价格
-            const perpetualPrices = await Promise.all([
+            const [binancePerpPrices, bybitPerpPrices, okexPerpPrices] = await Promise.all([
                 BinanceService.getPerpetualPrices(),
                 BybitService.getPerpetualPrices(),
                 OkexService.getPerpetualPrices()
             ]);
-            await DatabaseManager.updatePrices('perpetual', this.mergePrices(perpetualPrices));
+
+            // 分别更新每个交易所的价格
+            await DatabaseManager.updatePrices('perpetual', binancePerpPrices, 'binance');
+            await DatabaseManager.updatePrices('perpetual', bybitPerpPrices, 'bybit');
+            await DatabaseManager.updatePrices('perpetual', okexPerpPrices, 'okex');
+
         } catch (error) {
             console.error('Error syncing prices:', error);
-            throw error;
         }
     }
 
-    private mergeSymbols(symbolsFromExchanges: any[][]): any[] {
-        const allSymbols = symbolsFromExchanges.flatMap((symbols, index) => {
-            const exchange = ['binance', 'bybit', 'okex'][index];
-            return symbols.map(symbol => SymbolStandardizationService.standardizeSymbolInfo(symbol, exchange));
-        });
+    private mergeSymbols(symbolsArray: any[][]): any[] {
+        const symbolMap = new Map();
+        const exchanges = ['binance', 'bybit', 'okex'];
         
-        return SymbolStandardizationService.mergeSymbolInfos(allSymbols);
+        symbolsArray.forEach((symbols, index) => {
+            const exchange = exchanges[index];
+            symbols.forEach(symbol => {
+                const normalizedInfo = SymbolNormalizer.normalizeSymbolInfo(symbol, exchange);
+                const key = normalizedInfo.normalizedSymbol;
+                
+                if (symbolMap.has(key)) {
+                    const existing = symbolMap.get(key);
+                    existing.exchanges = existing.exchanges || [];
+                    existing.exchanges.push(exchange);
+                    existing.originalSymbols = existing.originalSymbols || {};
+                    existing.originalSymbols[exchange] = symbol.symbol;
+                } else {
+                    symbolMap.set(key, {
+                        symbol: normalizedInfo.normalizedSymbol,
+                        baseAsset: normalizedInfo.baseAsset,
+                        quoteAsset: normalizedInfo.quoteAsset,
+                        exchanges: [exchange],
+                        originalSymbols: { [exchange]: symbol.symbol }
+                    });
+                }
+            });
+        });
+
+        return Array.from(symbolMap.values());
     }
 
     private mergePrices(pricesArray: PriceData[][]): PriceData[] {
         const priceMap = new Map();
-        pricesArray.flat().forEach(price => {
-            priceMap.set(price.symbol, {
-                ...priceMap.get(price.symbol),
-                ...price
+        const exchanges = ['binance', 'bybit', 'okex'];
+
+        pricesArray.forEach((prices, index) => {
+            const exchange = exchanges[index];
+            prices.forEach(price => {
+                const normalizedSymbol = SymbolNormalizer.normalize(price.symbol);
+                
+                if (priceMap.has(normalizedSymbol)) {
+                    const existing = priceMap.get(normalizedSymbol);
+                    existing[`${exchange}Price`] = price.price;
+                } else {
+                    priceMap.set(normalizedSymbol, {
+                        symbol: normalizedSymbol,
+                        binancePrice: exchange === 'binance' ? price.price : null,
+                        bybitPrice: exchange === 'bybit' ? price.price : null,
+                        okexPrice: exchange === 'okex' ? price.price : null
+                    });
+                }
             });
         });
+
         return Array.from(priceMap.values());
     }
 
