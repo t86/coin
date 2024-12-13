@@ -129,9 +129,16 @@ class DatabaseManager {
         }
     }
 
-    private normalizeSymbol(symbol: string): string {
+    private normalizeSymbol(symbol: string, marketType: 'spot' | 'perpetual'): string {
         // Remove any hyphens and convert to uppercase
-        return symbol.replace(/-/g, '').toUpperCase();
+        let normalized = symbol.replace(/-/g, '').toUpperCase();
+        
+        // For perpetual contracts, remove the SWAP suffix from OKEx symbols
+        if (marketType === 'perpetual') {
+            normalized = normalized.replace('SWAP', '');
+        }
+        
+        return normalized;
     }
 
     public static getInstance(): DatabaseManager {
@@ -166,7 +173,7 @@ class DatabaseManager {
             const transaction = this.db.transaction((symbols: any[]) => {
                 for (const symbol of symbols) {
                     stmt.run({
-                        symbol: this.normalizeSymbol(symbol.symbol),
+                        symbol: this.normalizeSymbol(symbol.symbol, marketType),
                         baseAsset: symbol.baseAsset,
                         quoteAsset: symbol.quoteAsset,
                         marketType
@@ -190,7 +197,7 @@ class DatabaseManager {
             // 获取现有价格映射
             const existingPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all(marketType);
             const existingPriceMap = new Map(
-                existingPrices.map(price => [this.normalizeSymbol(price.symbol), price])
+                existingPrices.map(price => [this.normalizeSymbol(price.symbol, marketType), price])
             );
 
             const stmt = this.db.prepare(`
@@ -213,7 +220,7 @@ class DatabaseManager {
 
             const transaction = this.db.transaction((prices: PriceData[]) => {
                 for (const price of prices) {
-                    const normalizedSymbol = this.normalizeSymbol(price.symbol);
+                    const normalizedSymbol = this.normalizeSymbol(price.symbol, marketType);
                     const existing = existingPriceMap.get(normalizedSymbol);
                     const params = {
                         symbol: normalizedSymbol,
@@ -221,8 +228,7 @@ class DatabaseManager {
                         binancePrice: exchange === 'binance' ? price.price : (existing?.binancePrice || null),
                         okexPrice: exchange === 'okex' ? price.price : (existing?.okexPrice || null),
                         bybitPrice: exchange === 'bybit' ? price.price : (existing?.bybitPrice || null),
-                        updatedAt: Date.now(),
-                        exchange
+                        updatedAt: Date.now()
                     };
                     stmt.run(params);
                 }
