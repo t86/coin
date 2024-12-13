@@ -11,6 +11,61 @@ const CACHE_EXPIRY = 1000 * 60 * 60; // 1小时后过期
 const requestQueue: Array<() => Promise<any>> = [];
 let isProcessing = false;
 
+// Rate limiting configuration
+const RATE_LIMIT = {
+    maxRequests: 20,
+    timeWindow: 1000, // 1 second
+    requestDelay: 100 // ms between requests
+};
+
+let requestCount = 0;
+let lastRequestTime = Date.now();
+
+const resetRateLimit = () => {
+    const now = Date.now();
+    if (now - lastRequestTime >= RATE_LIMIT.timeWindow) {
+        requestCount = 0;
+        lastRequestTime = now;
+    }
+};
+
+const waitForRateLimit = async () => {
+    resetRateLimit();
+    if (requestCount >= RATE_LIMIT.maxRequests) {
+        const waitTime = RATE_LIMIT.timeWindow - (Date.now() - lastRequestTime);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        requestCount = 0;
+    }
+    requestCount++;
+    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT.requestDelay));
+};
+
+// Axios instance with retry logic
+const axiosInstance = axios.create({
+    timeout: 10000,
+    headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+    }
+});
+
+axiosInstance.interceptors.response.use(undefined, async (error) => {
+    const config = error.config;
+    config.retryCount = config.retryCount || 0;
+    
+    if (config.retryCount >= 3) {
+        return Promise.reject(error);
+    }
+    
+    config.retryCount += 1;
+    
+    // Exponential backoff
+    const backoff = Math.pow(2, config.retryCount) * 1000;
+    await new Promise(resolve => setTimeout(resolve, backoff));
+    
+    return axiosInstance(config);
+});
+
 async function processQueue() {
     if (isProcessing) return;
     isProcessing = true;
@@ -31,13 +86,19 @@ async function processQueue() {
     isProcessing = false;
 }
 
-function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
+async function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
         requestQueue.push(async () => {
             try {
+                await waitForRateLimit();
                 const result = await fn();
                 resolve(result);
             } catch (error) {
+                console.error('[okex API] Request failed:', {
+                    error: error.message,
+                    config: error.config?.url,
+                    status: error.response?.status,
+                });
                 reject(error);
             }
         });
@@ -47,7 +108,7 @@ function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 class OkexService {
     static get name(): string {
-        return 'OKEx';
+        return 'okex';
     }
 
     static async fetchFundingRate(instrument: string): Promise<{ fundingRate: string; nextFundingTime: number } | null> {
@@ -58,7 +119,7 @@ class OkexService {
                     params: `instId=${instrument}`
                 });
 
-                const response = await axios.get(`${API_BASE_URL}?${proxyParams.toString()}`);
+                const response = await axiosInstance.get(`${API_BASE_URL}?${proxyParams.toString()}`);
                 
                 if (!response.data?.data?.[0]) {
                     return null;
@@ -92,7 +153,7 @@ class OkexService {
                     params: `instId=${instrument}&instType=${instType}`
                 });
 
-                const response = await axios.get(`${API_BASE_URL}?${proxyParams.toString()}`);
+                const response = await axiosInstance.get(`${API_BASE_URL}?${proxyParams.toString()}`);
                 
                 // 处理各种可能的错误情况
                 if (!response.data || response.data.error) {
@@ -125,7 +186,7 @@ class OkexService {
                     symbol: item.instId.replace('-', '').replace('-SWAP', ''),
                     price: item.last,
                     timestamp: Date.now(),
-                    exchange: 'OKEx',
+                    exchange: 'okex',
                     type
                 };
 
@@ -153,12 +214,12 @@ class OkexService {
     static async fetchSymbols(type: 'spot' | 'perpetual' = 'perpetual'): Promise<ExchangeSymbol[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}/symbols`, {
+                const response = await axiosInstance.get(`${API_BASE_URL}/symbols`, {
                     params: { type }
                 });
                 
                 if (!response.data?.symbols) {
-                    console.error('Invalid response format from OKEx symbols API:', response.data);
+                    console.error('Invalid response format from okex symbols API:', response.data);
                     return [];
                 }
                 
@@ -167,7 +228,7 @@ class OkexService {
                     exchange: 'okex'
                 }));
             } catch (error) {
-                console.error('Error fetching OKEx symbols:', error);
+                console.error('Error fetching okex symbols:', error);
                 return [];
             }
         });
@@ -210,7 +271,7 @@ class OkexService {
                 // 过滤掉失败的请求
                 return prices.filter((price): price is PriceData => price !== null);
             } catch (error) {
-                console.error('Error fetching OKEx prices:', error);
+                console.error('Error fetching okex prices:', error);
                 return [];
             }
         });
@@ -219,7 +280,7 @@ class OkexService {
     static async getSpotSymbols(): Promise<ExchangeSymbol[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
+                const response = await axiosInstance.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'public/instruments',
                         instType: 'SPOT'
@@ -247,7 +308,7 @@ class OkexService {
     static async getPerpetualSymbols(): Promise<ExchangeSymbol[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
+                const response = await axiosInstance.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'public/instruments',
                         instType: 'SWAP'
@@ -275,7 +336,7 @@ class OkexService {
     static async getSpotPrices(): Promise<PriceData[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
+                const response = await axiosInstance.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'market/tickers',
                         instType: 'SPOT'
@@ -288,9 +349,8 @@ class OkexService {
 
                 return response.data.data.map((item: any) => ({
                     symbol: item.instId,
-                    binancePrice: null,
-                    okexPrice: item.last,
-                    bybitPrice: null
+                    price: item.last,
+                    exchange: 'okex'
                 }));
             } catch (error) {
                 console.error('Error fetching spot prices:', error);
@@ -302,7 +362,7 @@ class OkexService {
     static async getPerpetualPrices(): Promise<PriceData[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
+                const response = await axiosInstance.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'market/tickers',
                         instType: 'SWAP'
@@ -315,9 +375,8 @@ class OkexService {
 
                 return response.data.data.map((item: any) => ({
                     symbol: item.instId,
-                    binancePrice: null,
-                    okexPrice: item.last,
-                    bybitPrice: null
+                    price: item.last,
+                    exchange: 'okex'
                 }));
             } catch (error) {
                 console.error('Error fetching perpetual prices:', error);

@@ -1,6 +1,6 @@
 import { getBinanceSymbols } from './binance';
 import { getBybitSymbols } from './bybit';
-import { getOkexSymbols } from './okex';
+import { getokexSymbols } from './okex';
 import { withCache } from './cache';
 
 export interface Symbol {
@@ -19,7 +19,7 @@ const CACHE_KEYS = {
     ALL_SYMBOLS: 'all_symbols',
     BINANCE_SYMBOLS: 'binance_symbols',
     BYBIT_SYMBOLS: 'bybit_symbols',
-    OKEX_SYMBOLS: 'okex_symbols',
+    okex_SYMBOLS: 'okex_symbols',
     COMMON_BASE_ASSETS: 'common_base_assets'
 };
 
@@ -38,7 +38,7 @@ export async function getAllSymbols(minExchanges: number = 1): Promise<Symbol[]>
                 const [binanceSymbols, bybitSymbols, okexSymbols] = await Promise.all([
                     withCache(CACHE_KEYS.BINANCE_SYMBOLS, getBinanceSymbols, { ttl: CACHE_TTL.SYMBOLS }),
                     withCache(CACHE_KEYS.BYBIT_SYMBOLS, getBybitSymbols, { ttl: CACHE_TTL.SYMBOLS }),
-                    withCache(CACHE_KEYS.OKEX_SYMBOLS, getOkexSymbols, { ttl: CACHE_TTL.SYMBOLS })
+                    withCache(CACHE_KEYS.okex_SYMBOLS, getokexSymbols, { ttl: CACHE_TTL.SYMBOLS })
                 ]);
 
                 // 创建一个映射来合并相同的交易对
@@ -64,14 +64,14 @@ export async function getAllSymbols(minExchanges: number = 1): Promise<Symbol[]>
                     }
                 });
 
-                // 处理 OKEx 交易对
+                // 处理 okex 交易对
                 okexSymbols.forEach(symbol => {
                     if (symbolMap[symbol.symbol]) {
-                        symbolMap[symbol.symbol].exchanges.push('OKEx');
+                        symbolMap[symbol.symbol].exchanges.push('okex');
                     } else {
                         symbolMap[symbol.symbol] = {
                             ...symbol,
-                            exchanges: ['OKEx']
+                            exchanges: ['okex']
                         };
                     }
                 });

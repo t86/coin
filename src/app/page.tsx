@@ -129,7 +129,7 @@ export default function Home() {
                                 Binance
                             </th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                OKEx
+                                okex
                             </th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Bybit
@@ -154,7 +154,7 @@ export default function Home() {
                                             Bybit
                                         </span>
                                         <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs">
-                                            OKEx
+                                            okex
                                         </span>
                                     </div>
                                 </td>

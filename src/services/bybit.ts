@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { PriceData, ExchangeSymbol } from '../types/exchange';
+import { PriceCard } from '@/components/PriceCard';
 
 const API_BASE_URL = 'http://localhost:3000/api/bybit';
 
@@ -438,9 +439,8 @@ class BybitService {
 
                 return response.data.result.list.map((item: any) => ({
                     symbol: item.symbol,
-                    binancePrice: null,
-                    okexPrice: null,
-                    bybitPrice: item.lastPrice
+                    price: item.lastPrice,
+                    exchange: 'bybit',
                 }));
             } catch (error) {
                 console.error('Error fetching spot prices:', error);
@@ -465,9 +465,8 @@ class BybitService {
 
                 return response.data.result.list.map((item: any) => ({
                     symbol: item.symbol,
-                    binancePrice: null,
-                    okexPrice: null,
-                    bybitPrice: item.lastPrice
+                    price: item.lastPrice,
+                    exchange: 'bybit',
                 }));
             } catch (error) {
                 console.error('Error fetching perpetual prices:', error);

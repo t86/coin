@@ -90,19 +90,20 @@ class DataSyncService {
     private async syncPrices() {
         try {
             // 同步现货价格
-            const [binanceSpotPrices, bybitSpotPrices, okexSpotPrices] = await Promise.all([
+            let [binanceSpotPrices, bybitSpotPrices, okexSpotPrices] = await Promise.all([
                 BinanceService.getSpotPrices(),
                 BybitService.getSpotPrices(),
                 OkexService.getSpotPrices()
             ]);
 
+            
             // 分别更新每个交易所的价格
             await DatabaseManager.updatePrices('spot', binanceSpotPrices, 'binance');
             await DatabaseManager.updatePrices('spot', bybitSpotPrices, 'bybit');
             await DatabaseManager.updatePrices('spot', okexSpotPrices, 'okex');
 
             // 同步永续合约价格
-            const [binancePerpPrices, bybitPerpPrices, okexPerpPrices] = await Promise.all([
+            let [binancePerpPrices, bybitPerpPrices, okexPerpPrices] = await Promise.all([
                 BinanceService.getPerpetualPrices(),
                 BybitService.getPerpetualPrices(),
                 OkexService.getPerpetualPrices()

@@ -11,7 +11,7 @@ export async function GET(request: Request) {
         const path = searchParams.get('path');
         const instType = searchParams.get('instType');
 
-        console.log('[OKEx API] Request params:', {
+        console.log('[okex API] Request params:', {
             path,
             instType,
             searchParams: Object.fromEntries(searchParams.entries())
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
             params.append('instType', instType);
         }
 
-        console.log('[OKEx API] Making request:', {
+        console.log('[okex API] Making request:', {
             url,
             params: Object.fromEntries(params.entries())
         });
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
             timeout: 10000
         });
 
-        console.log('[OKEx API] Response:', {
+        console.log('[okex API] Response:', {
             status: response.status,
             dataLength: response.data?.data?.length || 'no data array',
             data: response.data
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json(response.data);
     } catch (error: any) {
-        console.error('[OKEx API] Error:', {
+        console.error('[okex API] Error:', {
             message: error.message,
             response: {
                 status: error.response?.status,

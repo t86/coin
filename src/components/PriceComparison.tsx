@@ -49,10 +49,10 @@ export const PriceComparison: React.FC<PriceComparisonProps> = ({ data }) => {
                     </div>
                 </div>
 
-                {/* OKEx 价格和溢价 */}
+                {/* okex 价格和溢价 */}
                 <div className="col-span-2">
                     <div className="flex flex-col">
-                        <span className="text-sm font-medium text-gray-500">OKEx</span>
+                        <span className="text-sm font-medium text-gray-500">okex</span>
                         <div className="flex items-center gap-2">
                             <span className="text-base font-semibold">${formatPrice(data.okex?.price)}</span>
                             {binancePrice && data.okex?.price && (
