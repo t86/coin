@@ -129,6 +129,11 @@ class DatabaseManager {
         }
     }
 
+    private normalizeSymbol(symbol: string): string {
+        // Remove any hyphens and convert to uppercase
+        return symbol.replace(/-/g, '').toUpperCase();
+    }
+
     public static getInstance(): DatabaseManager {
         if (!DatabaseManager.instance) {
             DatabaseManager.instance = new DatabaseManager();
@@ -161,7 +166,7 @@ class DatabaseManager {
             const transaction = this.db.transaction((symbols: any[]) => {
                 for (const symbol of symbols) {
                     stmt.run({
-                        symbol: symbol.symbol,
+                        symbol: this.normalizeSymbol(symbol.symbol),
                         baseAsset: symbol.baseAsset,
                         quoteAsset: symbol.quoteAsset,
                         marketType
@@ -182,38 +187,36 @@ class DatabaseManager {
         if (!this.db) throw new Error('Database not initialized');
 
         try {
-            // 首先获取现有价格数据
+            // 获取现有价格映射
             const existingPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all(marketType);
-            const existingPriceMap = new Map(existingPrices.map(p => [p.symbol, p]));
+            const existingPriceMap = new Map(
+                existingPrices.map(price => [this.normalizeSymbol(price.symbol), price])
+            );
 
-            // 准备更新语句
             const stmt = this.db.prepare(`
-                INSERT INTO prices (
-                    symbol, marketType, binancePrice, okexPrice, bybitPrice, updatedAt
+                INSERT OR REPLACE INTO prices (
+                    symbol,
+                    marketType,
+                    binancePrice,
+                    okexPrice,
+                    bybitPrice,
+                    updatedAt
                 ) VALUES (
-                    @symbol, @marketType, @binancePrice, @okexPrice, @bybitPrice, @updatedAt
+                    @symbol,
+                    @marketType,
+                    @binancePrice,
+                    @okexPrice,
+                    @bybitPrice,
+                    @updatedAt
                 )
-                ON CONFLICT(symbol, marketType) DO UPDATE SET
-                    binancePrice = CASE 
-                        WHEN @exchange = 'binance' THEN @binancePrice 
-                        ELSE prices.binancePrice 
-                    END,
-                    okexPrice = CASE 
-                        WHEN @exchange = 'okex' THEN @okexPrice 
-                        ELSE prices.okexPrice 
-                    END,
-                    bybitPrice = CASE 
-                        WHEN @exchange = 'bybit' THEN @bybitPrice 
-                        ELSE prices.bybitPrice 
-                    END,
-                    updatedAt = @updatedAt
             `);
 
             const transaction = this.db.transaction((prices: PriceData[]) => {
                 for (const price of prices) {
-                    const existing = existingPriceMap.get(price.symbol);
+                    const normalizedSymbol = this.normalizeSymbol(price.symbol);
+                    const existing = existingPriceMap.get(normalizedSymbol);
                     const params = {
-                        symbol: price.symbol,
+                        symbol: normalizedSymbol,
                         marketType,
                         binancePrice: exchange === 'binance' ? price.price : (existing?.binancePrice || null),
                         okexPrice: exchange === 'okex' ? price.price : (existing?.okexPrice || null),
@@ -230,7 +233,7 @@ class DatabaseManager {
             // 更新缓存
             const updatedPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all(marketType)
                 .map(row => ({
-                    symbol: row.symbol,
+                    symbol: row.symbol, // Already normalized
                     prices: {
                         binance: row.binancePrice,
                         okex: row.okexPrice,

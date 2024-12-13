@@ -96,6 +96,10 @@ class DataSyncService {
                 OkexService.getSpotPrices()
             ]);
 
+            // 标准化所有交易所的货币对格式
+            binanceSpotPrices = this.normalizeExchangePrices(binanceSpotPrices);
+            bybitSpotPrices = this.normalizeExchangePrices(bybitSpotPrices);
+            okexSpotPrices = this.normalizeExchangePrices(okexSpotPrices);
             
             // 分别更新每个交易所的价格
             await DatabaseManager.updatePrices('spot', binanceSpotPrices, 'binance');
@@ -109,14 +113,29 @@ class DataSyncService {
                 OkexService.getPerpetualPrices()
             ]);
 
-            // 分别更新每个交易所的价格
+            // 标准化所有交易所的永续合约货币对格式
+            binancePerpPrices = this.normalizeExchangePrices(binancePerpPrices);
+            bybitPerpPrices = this.normalizeExchangePrices(bybitPerpPrices);
+            okexPerpPrices = this.normalizeExchangePrices(okexPerpPrices);
+
             await DatabaseManager.updatePrices('perpetual', binancePerpPrices, 'binance');
             await DatabaseManager.updatePrices('perpetual', bybitPerpPrices, 'bybit');
             await DatabaseManager.updatePrices('perpetual', okexPerpPrices, 'okex');
-
         } catch (error) {
             console.error('Error syncing prices:', error);
         }
+    }
+
+    private normalizeSymbol(symbol: string): string {
+        // Remove any hyphens and convert to uppercase
+        return symbol.replace(/-/g, '').toUpperCase();
+    }
+
+    private normalizeExchangePrices(prices: PriceData[]): PriceData[] {
+        return prices.map(price => ({
+            ...price,
+            symbol: this.normalizeSymbol(price.symbol)
+        }));
     }
 
     private mergeSymbols(symbolsArray: any[][]): any[] {
