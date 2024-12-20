@@ -194,13 +194,13 @@ export default function Home() {
                         上一页
                     </button>
                     <span className="text-sm text-gray-600">
-                        第 {currentPage} 页 / 共 {data.data.totalPages} 页
+                        第 {currentPage} 页 / 共 {data ? Math.ceil(data.data.total / data.data.pageSize) : 1} 页
                     </span>
                     <button
                         onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === data.data.totalPages}
+                        disabled={!data || currentPage >= Math.ceil(data.data.total / data.data.pageSize)}
                         className={`px-4 py-2 border rounded-md ${
-                            currentPage === data.data.totalPages
+                            !data || currentPage >= Math.ceil(data.data.total / data.data.pageSize)
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-600 hover:bg-gray-50'
                         }`}
