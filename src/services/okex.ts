@@ -362,22 +362,46 @@ class OkexService {
     static async getPerpetualPrices(): Promise<PriceData[]> {
         return queueRequest(async () => {
             try {
-                const response = await axiosInstance.get(`${API_BASE_URL}`, {
+                // 获取价格数据
+                const priceResponse = await axiosInstance.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'market/tickers',
                         instType: 'SWAP'
                     }
                 });
 
-                if (!response.data?.data) {
+                if (!priceResponse.data?.data) {
                     return [];
                 }
 
-                return response.data.data.map((item: any) => ({
-                    symbol: item.instId,
-                    price: item.last,
-                    exchange: 'okex'
-                }));
+                // 获取资金费率数据
+                const fundingResponse = await axiosInstance.get(`${API_BASE_URL}`, {
+                    params: {
+                        path: 'public/funding-rate',
+                        instType: 'SWAP'
+                    }
+                });
+
+                const fundingRates = new Map(
+                    fundingResponse.data?.data?.map((item: any) => [
+                        item.instId,
+                        {
+                            fundingRate: parseFloat(item.fundingRate),
+                            nextFundingTime: parseInt(item.nextFundingTime)
+                        }
+                    ]) || []
+                );
+
+                return priceResponse.data.data.map((item: any) => {
+                    const fundingInfo = fundingRates.get(item.instId);
+                    return {
+                        symbol: item.instId,
+                        price: parseFloat(item.last),
+                        exchange: 'okex',
+                        fundingRate: fundingInfo?.fundingRate,
+                        nextFundingTime: fundingInfo?.nextFundingTime
+                    };
+                });
             } catch (error) {
                 console.error('Error fetching perpetual prices:', error);
                 return [];

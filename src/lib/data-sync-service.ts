@@ -89,40 +89,96 @@ class DataSyncService {
 
     private async syncPrices() {
         try {
-            // 同步现货价格
-            let [binanceSpotPrices, bybitSpotPrices, okexSpotPrices] = await Promise.all([
-                BinanceService.getSpotPrices(),
-                BybitService.getSpotPrices(),
-                OkexService.getSpotPrices()
-            ]);
+            const db = await DatabaseManager.getInstance();
+            const [binanceService, okexService, bybitService] = [
+                new BinanceService(),
+                new OkexService(),
+                new BybitService()
+            ];
 
-            // 标准化所有交易所的货币对格式
-            binanceSpotPrices = this.normalizeExchangePrices(binanceSpotPrices);
-            bybitSpotPrices = this.normalizeExchangePrices(bybitSpotPrices);
-            okexSpotPrices = this.normalizeExchangePrices(okexSpotPrices);
+            // 获取所有交易对
+            const symbols = await db.getAllSymbols();
+
+            // 并行获取价格和资金费率
+            const pricePromises = symbols.map(async (symbol) => {
+                const normalizedSymbol = symbol.symbol;
+                const prices: PriceData[] = [];
+
+                // Binance
+                try {
+                    const [price, fundingRate] = await Promise.all([
+                        binanceService.getPrice(normalizedSymbol),
+                        binanceService.getFundingRate(normalizedSymbol)
+                    ]);
+                    if (price) {
+                        prices.push({
+                            symbol: normalizedSymbol,
+                            price: price,
+                            exchange: 'Binance',
+                            fundingRate: fundingRate?.rate || 0,
+                            nextFundingTime: fundingRate?.nextFundingTime || 0
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Binance sync failed for ${normalizedSymbol}:`, error);
+                }
+
+                // OKEx
+                try {
+                    const [price, fundingRate] = await Promise.all([
+                        okexService.getPrice(normalizedSymbol),
+                        okexService.getFundingRate(normalizedSymbol)
+                    ]);
+                    if (price) {
+                        prices.push({
+                            symbol: normalizedSymbol,
+                            price: price,
+                            exchange: 'OKEx',
+                            fundingRate: fundingRate?.rate || 0,
+                            nextFundingTime: fundingRate?.nextFundingTime || 0
+                        });
+                    }
+                } catch (error) {
+                    console.error(`OKEx sync failed for ${normalizedSymbol}:`, error);
+                }
+
+                // Bybit
+                try {
+                    const [price, fundingRate] = await Promise.all([
+                        bybitService.getPrice(normalizedSymbol),
+                        bybitService.getFundingRate(normalizedSymbol)
+                    ]);
+                    if (price) {
+                        prices.push({
+                            symbol: normalizedSymbol,
+                            price: price,
+                            exchange: 'Bybit',
+                            fundingRate: fundingRate?.rate || 0,
+                            nextFundingTime: fundingRate?.nextFundingTime || 0
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Bybit sync failed for ${normalizedSymbol}:`, error);
+                }
+
+                return {
+                    symbol: normalizedSymbol,
+                    prices,
+                    timestamp: Date.now()
+                };
+            });
+
+            const results = await Promise.all(pricePromises);
             
-            // 分别更新每个交易所的价格
-            await DatabaseManager.updatePrices('spot', binanceSpotPrices, 'binance');
-            await DatabaseManager.updatePrices('spot', bybitSpotPrices, 'bybit');
-            await DatabaseManager.updatePrices('spot', okexSpotPrices, 'okex');
-
-            // 同步永续合约价格
-            let [binancePerpPrices, bybitPerpPrices, okexPerpPrices] = await Promise.all([
-                BinanceService.getPerpetualPrices(),
-                BybitService.getPerpetualPrices(),
-                OkexService.getPerpetualPrices()
-            ]);
-
-            // 标准化所有交易所的永续合约货币对格式
-            binancePerpPrices = this.normalizeExchangePrices(binancePerpPrices);
-            bybitPerpPrices = this.normalizeExchangePrices(bybitPerpPrices);
-            okexPerpPrices = this.normalizeExchangePrices(okexPerpPrices);
-
-            await DatabaseManager.updatePrices('perpetual', binancePerpPrices, 'binance');
-            await DatabaseManager.updatePrices('perpetual', bybitPerpPrices, 'bybit');
-            await DatabaseManager.updatePrices('perpetual', okexPerpPrices, 'okex');
+            // 更新数据库
+            for (const result of results) {
+                if (result.prices.length > 0) {
+                    await db.updatePrices(result);
+                }
+            }
         } catch (error) {
-            console.error('Error syncing prices:', error);
+            console.error('Price sync failed:', error);
+            throw error;
         }
     }
 

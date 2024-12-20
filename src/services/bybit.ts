@@ -452,22 +452,46 @@ class BybitService {
     static async getPerpetualPrices(): Promise<PriceData[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
+                // 获取价格数据
+                const priceResponse = await axios.get(`${API_BASE_URL}`, {
                     params: {
                         path: 'market/tickers',
                         category: 'linear'
                     }
                 });
 
-                if (!response.data?.result?.list) {
+                if (!priceResponse.data?.result?.list) {
                     return [];
                 }
 
-                return response.data.result.list.map((item: any) => ({
-                    symbol: item.symbol,
-                    price: item.lastPrice,
-                    exchange: 'bybit',
-                }));
+                // 获取资金费率数据
+                const fundingResponse = await axios.get(`${API_BASE_URL}`, {
+                    params: {
+                        path: 'market/tickers/funding-rate',
+                        category: 'linear'
+                    }
+                });
+
+                const fundingRates = new Map(
+                    fundingResponse.data?.result?.list?.map((item: any) => [
+                        item.symbol,
+                        {
+                            fundingRate: parseFloat(item.fundingRate),
+                            nextFundingTime: parseInt(item.nextFundingTime)
+                        }
+                    ]) || []
+                );
+
+                return priceResponse.data.result.list.map((item: any) => {
+                    const fundingInfo = fundingRates.get(item.symbol);
+                    return {
+                        symbol: item.symbol,
+                        price: parseFloat(item.lastPrice),
+                        exchange: 'bybit',
+                        fundingRate: fundingInfo?.fundingRate,
+                        nextFundingTime: fundingInfo?.nextFundingTime
+                    };
+                });
             } catch (error) {
                 console.error('Error fetching perpetual prices:', error);
                 return [];

@@ -68,17 +68,21 @@ class DatabaseManager {
             `);
 
             // 创建prices表
-            this.db.exec(`
+            const createPricesTable = `
                 CREATE TABLE IF NOT EXISTS prices (
-                    symbol TEXT,
-                    marketType TEXT,
-                    binancePrice TEXT,
-                    okexPrice TEXT,
-                    bybitPrice TEXT,
+                    symbol TEXT NOT NULL,
+                    marketType TEXT NOT NULL,
+                    binancePrice REAL,
+                    okexPrice REAL,
+                    bybitPrice REAL,
+                    binanceFundingRate REAL,
+                    okexFundingRate REAL,
+                    bybitFundingRate REAL,
                     updatedAt INTEGER,
                     PRIMARY KEY (symbol, marketType)
                 )
-            `);
+            `;
+            this.db.exec(createPricesTable);
 
             // 从数据库加载数据到缓存
             this.loadCacheFromDb();
@@ -108,6 +112,11 @@ class DatabaseManager {
                         binance: row.binancePrice,
                         okex: row.okexPrice,
                         bybit: row.bybitPrice
+                    },
+                    fundingRates: {
+                        binance: row.binanceFundingRate,
+                        okex: row.okexFundingRate,
+                        bybit: row.bybitFundingRate
                     }
                 }));
             const perpetualPrices = this.db.prepare('SELECT * FROM prices WHERE marketType = ?').all('perpetual')
@@ -117,6 +126,11 @@ class DatabaseManager {
                         binance: row.binancePrice,
                         okex: row.okexPrice,
                         bybit: row.bybitPrice
+                    },
+                    fundingRates: {
+                        binance: row.binanceFundingRate,
+                        okex: row.okexFundingRate,
+                        bybit: row.bybitFundingRate
                     }
                 }));
             this.priceCache.set('spot', spotPrices);
@@ -207,6 +221,9 @@ class DatabaseManager {
                     binancePrice,
                     okexPrice,
                     bybitPrice,
+                    binanceFundingRate,
+                    okexFundingRate,
+                    bybitFundingRate,
                     updatedAt
                 ) VALUES (
                     @symbol,
@@ -214,6 +231,9 @@ class DatabaseManager {
                     @binancePrice,
                     @okexPrice,
                     @bybitPrice,
+                    @binanceFundingRate,
+                    @okexFundingRate,
+                    @bybitFundingRate,
                     @updatedAt
                 )
             `);
@@ -228,6 +248,9 @@ class DatabaseManager {
                         binancePrice: exchange === 'binance' ? price.price : (existing?.binancePrice || null),
                         okexPrice: exchange === 'okex' ? price.price : (existing?.okexPrice || null),
                         bybitPrice: exchange === 'bybit' ? price.price : (existing?.bybitPrice || null),
+                        binanceFundingRate: exchange === 'binance' ? price.fundingRate : (existing?.binanceFundingRate || null),
+                        okexFundingRate: exchange === 'okex' ? price.fundingRate : (existing?.okexFundingRate || null),
+                        bybitFundingRate: exchange === 'bybit' ? price.fundingRate : (existing?.bybitFundingRate || null),
                         updatedAt: Date.now()
                     };
                     stmt.run(params);
@@ -244,6 +267,11 @@ class DatabaseManager {
                         binance: row.binancePrice,
                         okex: row.okexPrice,
                         bybit: row.bybitPrice
+                    },
+                    fundingRates: {
+                        binance: row.binanceFundingRate,
+                        okex: row.okexFundingRate,
+                        bybit: row.bybitFundingRate
                     }
                 }));
             this.priceCache.set(marketType, updatedPrices);

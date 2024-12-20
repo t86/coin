@@ -29,14 +29,32 @@ export async function GET(request: Request) {
         ) || [];
 
         const total = filteredSymbols.length;
-        const start = (page - 1) * pageSize;
-        const end = start + pageSize;
-        const paginatedSymbols = filteredSymbols.slice(start, end);
+        const startIndex = (page - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginatedSymbols = filteredSymbols.slice(startIndex, endIndex);
+
+        // 获取价格数据并添加资金费率差值
+        const priceData = prices.filter(price => 
+            paginatedSymbols.some(symbol => symbol.symbol === price.symbol)
+        ).map(price => {
+            if (marketType === 'perpetual' && price.fundingRates) {
+                const { binance, okex, bybit } = price.fundingRates;
+                const diffs = {
+                    binanceOkex: binance && okex ? +(binance - okex).toFixed(6) : null,
+                    binanceBybit: binance && bybit ? +(binance - bybit).toFixed(6) : null,
+                    okexBybit: okex && bybit ? +(okex - bybit).toFixed(6) : null
+                };
+                return {
+                    ...price,
+                    fundingRateDiffs: diffs
+                };
+            }
+            return price;
+        });
 
         // 获取分页后的价格数据
         const paginatedData = paginatedSymbols.map(symbol => {
-            const price = prices.find(p => p?.symbol === symbol?.symbol);
-            console.log('price:', price);
+            const price = priceData.find(p => p?.symbol === symbol?.symbol);
             return {
                 symbol: symbol?.symbol || '',
                 baseAsset: symbol?.baseAsset || '',
@@ -45,30 +63,33 @@ export async function GET(request: Request) {
                     binance: price?.prices?.binance || null,
                     okex: price?.prices?.okex || null,
                     bybit: price?.prices?.bybit || null
-                }
+                },
+                fundingRateDiffs: price?.fundingRateDiffs || null
             };
         });
 
         // 确保返回有效的响应结构
         return NextResponse.json({
-            data: paginatedData || [],
-            pagination: {
+            success: true,
+            data: {
                 total,
                 page,
                 pageSize,
-                totalPages: Math.max(1, Math.ceil(total / pageSize))
+                symbols: paginatedSymbols,
+                prices: paginatedData
             }
         });
     } catch (error) {
         console.error('Error fetching price data:', error);
         // 发生错误时返回空数据而不是错误状态
         return NextResponse.json({
-            data: [],
-            pagination: {
+            success: false,
+            data: {
                 total: 0,
                 page: 1,
                 pageSize,
-                totalPages: 1
+                symbols: [],
+                prices: []
             }
         });
     }

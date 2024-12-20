@@ -4,21 +4,27 @@ import { useState, useEffect } from 'react';
 import { PriceData } from '../types/exchange';
 
 interface PriceResponse {
-    data: Array<{
-        symbol: string;
-        baseAsset: string;
-        quoteAsset: string;
-        prices: {
-            binance: string | null;
-            okex: string | null;
-            bybit: string | null;
-        };
-    }>;
-    pagination: {
+    success: boolean;
+    data: {
         total: number;
         page: number;
         pageSize: number;
-        totalPages: number;
+        symbols: Array<any>;
+        prices: Array<{
+            symbol: string;
+            baseAsset: string;
+            quoteAsset: string;
+            prices: {
+                binance: string | null;
+                okex: string | null;
+                bybit: string | null;
+            };
+            fundingRateDiffs?: {
+                binanceOkex: number | null;
+                binanceBybit: number | null;
+                okexBybit: number | null;
+            } | null;
+        }>;
     };
 }
 
@@ -137,7 +143,7 @@ export default function Home() {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {data?.data.map((item, index) => (
+                        {data?.data.prices.map((item, index) => (
                             <tr key={item.symbol} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                     {item.symbol}
@@ -188,13 +194,13 @@ export default function Home() {
                         上一页
                     </button>
                     <span className="text-sm text-gray-600">
-                        第 {currentPage} 页 / 共 {data.pagination.totalPages} 页
+                        第 {currentPage} 页 / 共 {data.data.totalPages} 页
                     </span>
                     <button
                         onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === data.pagination.totalPages}
+                        disabled={currentPage === data.data.totalPages}
                         className={`px-4 py-2 border rounded-md ${
-                            currentPage === data.pagination.totalPages
+                            currentPage === data.data.totalPages
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-600 hover:bg-gray-50'
                         }`}

@@ -1,11 +1,35 @@
 export interface PriceData {
     symbol: string;
-    price: string;
-    timestamp: number;
+    price: number;
     exchange: string;
-    type: 'spot' | 'perpetual';
-    fundingRate?: string;      // 当前资金费率
-    nextFundingTime?: string;  // 下次资金费率时间
+    fundingRate?: number;
+    nextFundingTime?: number;
+}
+
+export interface ExchangeSymbol {
+    symbol: string;
+    baseAsset?: string;
+    quoteAsset?: string;
+    exchange?: string;
+}
+
+export interface ConsolidatedPriceData {
+    symbol: string;
+    prices: {
+        binance: number | null;
+        okex: number | null;
+        bybit: number | null;
+    };
+    fundingRates?: {
+        binance: number | null;
+        okex: number | null;
+        bybit: number | null;
+    };
+    fundingRateDiffs?: {
+        binanceOkex: number | null;
+        binanceBybit: number | null;
+        okexBybit: number | null;
+    };
 }
 
 export interface CoinPriceComparison {
