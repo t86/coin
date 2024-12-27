@@ -3,12 +3,12 @@ import { getDatabase } from '@/lib/database';
 
 export async function GET(request: Request) {
     // 检查服务是否已初始化
-    if (!global.__servicesInitialized) {
-        return NextResponse.json(
-            { status: 'error', message: 'Services are still initializing' },
-            { status: 503 } // Service Unavailable
-        );
-    }
+    // if (!global.__servicesInitialized) {
+    //     return NextResponse.json(
+    //         { status: 'error', message: 'Services are still initializing' },
+    //         { status: 503 } // Service Unavailable
+    //     );
+    // }
 
     const { searchParams } = new URL(request.url);
     const marketType = searchParams.get('marketType') || 'spot';
@@ -34,22 +34,24 @@ export async function GET(request: Request) {
         const endIndex = startIndex + pageSize;
         const paginatedSymbols = filteredSymbols.slice(startIndex, endIndex);
 
+
         // 获取分页后的价格数据
         const paginatedData = paginatedSymbols.map(symbol => {
             const price = prices.find(p => p?.symbol === symbol?.symbol);
+            console.log('price', price);
             return {
                 symbol: symbol?.symbol || '',
                 baseAsset: symbol?.baseAsset || '',
                 quoteAsset: symbol?.quoteAsset || '',
                 prices: {
-                    binance: price?.binancePrice || null,
-                    okex: price?.okexPrice || null,
-                    bybit: price?.bybitPrice || null
+                    binance: price?.binance_price || null,
+                    okex: price?.okex_price || null,
+                    bybit: price?.bybit_price || null
                 },
                 fundingRates: marketType === 'perpetual' ? {
-                    binance: price?.binanceFundingRate || null,
-                    okex: price?.okexFundingRate || null,
-                    bybit: price?.bybitFundingRate || null
+                    binance: price?.binance_funding_rate || null,
+                    okex: price?.okex_funding_rate || null,
+                    bybit: price?.bybit_funding_rate || null
                 } : null
             };
         });

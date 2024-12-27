@@ -2,13 +2,17 @@
   "name": "coin",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=16.8"
+  },
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "npm rebuild better-sqlite3",
-    "sync": "NODE_NO_WARNINGS=1 ts-node --project scripts/tsconfig.json scripts/sync-prices.ts",
+    "sync": "NODE_NO_WARNINGS=1 node --loader ts-node/esm scripts/sync-prices.ts",
     "type-check": "tsc --noEmit",
     "test": "ts-node --project scripts/tsconfig.json scripts/test.ts"
   },
@@ -20,18 +24,20 @@
     "ccxt": "^4.4.43",
     "https-proxy-agent": "^7.0.6",
     "next": "latest",
-    "node-fetch": "^3.3.2",
+    "node-fetch": "^2.7.0",
     "p-queue": "^8.0.1",
     "react": "latest",
     "react-dom": "latest",
     "sqlite3": "^5.1.7",
-    "undici": "^7.2.0"
+    "undici": "^7.2.0",
+    "web-streams-polyfill": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@types/sqlite3": "^3.1.11",
+    "@swc/core": "^1.4.0",
     "autoprefixer": "latest",
     "postcss": "latest",
     "tailwindcss": "latest",

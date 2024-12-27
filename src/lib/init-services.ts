@@ -1,5 +1,5 @@
-import DataSyncService from './data-sync-service';
-import { getDatabase } from './database';
+import DataSyncService from './data-sync-service.js';
+import { getDatabase } from './database.js';
 
 export async function initializeServices() {
     try {
@@ -19,9 +19,4 @@ export async function initializeServices() {
         console.error('Error initializing services:', error);
         throw error;
     }
-}
-
-// 添加 CommonJS 兼容性支持
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { initializeServices };
 }
