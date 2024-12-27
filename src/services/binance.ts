@@ -1,4 +1,7 @@
+import ccxt from 'ccxt';
 import axios from 'axios';
+import fetch from 'node-fetch';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { ExchangeSymbol, PriceData } from '../types/exchange';
 
 const API_BASE_URL = 'http://localhost:3000/api/binance';
@@ -45,35 +48,45 @@ function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
     });
 }
 
-// 将现货交易对转换为合约交易对
-function convertToPerpSymbol(symbol: string): string {
-    // 例如：BTCUSDT -> BTCUSDT_PERP
-    return `${symbol}_PERP`;
-}
-
 class BinanceService {
-    static get name(): string {
+    private static instance: BinanceService;
+    private exchange: ccxt.binance;
+
+    private constructor() {
+        this.exchange = new ccxt.binance({
+            enableRateLimit: true,
+            timeout: 30000,  // 增加超时时间到30秒
+            fetchImplementation: async (url: string, options = {}) => {
+                const agent = new HttpsProxyAgent('http://127.0.0.1:7890');
+                return fetch(url, { ...options, agent });
+            }
+        });
+    }
+
+    public static getInstance(): BinanceService {
+        if (!BinanceService.instance) {
+            BinanceService.instance = new BinanceService();
+        }
+        return BinanceService.instance;
+    }
+
+    public static get name(): string {
         return 'Binance';
     }
 
-    static async fetchFundingRate(symbol: string): Promise<{ fundingRate: string; nextFundingTime: number } | null> {
+    public static async fetchFundingRate(symbol: string): Promise<{ fundingRate: string; nextFundingTime: number } | null> {
         return queueRequest(async () => {
             try {
-                const proxyParams = new URLSearchParams({
-                    path: 'funding-rate',
-                    symbol: convertToPerpSymbol(symbol)
-                });
-
-                const response = await axios.get(`${API_BASE_URL}?${proxyParams.toString()}`);
+                const perpSymbol = symbol.replace('USDT', '/USDT:USDT');
+                const fundingRate = await BinanceService.getInstance().exchange.fetchFundingRate(perpSymbol);
                 
-                if (!response.data?.data?.[0]) {
+                if (!fundingRate) {
                     return null;
                 }
 
-                const item = response.data.data[0];
                 return {
-                    fundingRate: (parseFloat(item.fundingRate) * 100).toFixed(4) + '%',
-                    nextFundingTime: parseInt(item.nextFundingTime)
+                    fundingRate: (fundingRate.fundingRate * 100).toFixed(4) + '%',
+                    nextFundingTime: fundingRate.nextFundingTimestamp
                 };
             } catch (error) {
                 console.error(`Funding rate fetch error for ${symbol}:`, error);
@@ -82,9 +95,8 @@ class BinanceService {
         });
     }
 
-    static async fetchSinglePrice(symbol: string, type: 'spot' | 'perpetual'): Promise<PriceData | null> {
+    public static async fetchSinglePrice(symbol: string, type: 'spot' | 'perpetual'): Promise<PriceData | null> {
         return queueRequest(async () => {
-            // 检查缓存中是否存在无效的交易对
             const cacheKey = `${symbol}-${type}`;
             const cachedInvalid = invalidSymbolCache[cacheKey];
             if (cachedInvalid && (Date.now() - cachedInvalid.timestamp) < CACHE_EXPIRY) {
@@ -93,47 +105,31 @@ class BinanceService {
             }
 
             try {
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        symbols: JSON.stringify([symbol.replace('_PERP', '')]),
-                        type
-                    }
-                });
+                const formattedSymbol = type === 'perpetual' 
+                    ? symbol.replace('USDT', '/USDT:USDT')  // 对于永续合约
+                    : symbol.replace('USDT', '/USDT');      // 对于现货
+
+                const ticker = await BinanceService.getInstance().exchange.fetchTicker(formattedSymbol);
+                console.log(`Fetched ticker for ${symbol}:`);
                 
-                // 处理各种可能的错误情况
-                if (!response.data || response.data.error) {
-                    console.error(`Price fetch error for ${symbol}:`, response.data);
-                    invalidSymbolCache[cacheKey] = {
-                        timestamp: Date.now(),
-                        type
-                    };
-                    return null;
+                // 检查 info 中的 lastPrice
+                const lastPrice = ticker?.info?.lastPrice;
+                if (!lastPrice || lastPrice === '0.00000000') {
+                    throw new Error('No valid price data available');
                 }
-
-                // 确保数据存在
-                const priceItem = response.data[0];
-                if (!priceItem || !priceItem.price) {
-                    console.warn(`No data for symbol: ${symbol}`);
-                    invalidSymbolCache[cacheKey] = {
-                        timestamp: Date.now(),
-                        type
-                    };
-                    return null;
-                }
-
-                console.log(`Successfully fetched price for ${symbol}: ${priceItem.price}`);
 
                 const priceData: PriceData = {
                     symbol: symbol,
-                    price: priceItem.price,
-                    timestamp: Date.now(),
+                    price: parseFloat(lastPrice),
+                    timestamp: ticker.timestamp || Date.now(),
                     exchange: 'Binance',
-                    type: priceItem.type || type
+                    type: type
                 };
 
                 // 如果是永续合约，获取资金费率
                 if (type === 'perpetual') {
-                    const fundingInfo = await this.fetchFundingRate(symbol);
+                    const fundingInfo = await BinanceService.fetchFundingRate(symbol);
+                    console.log(`Fetched funding info for ${symbol}:`, fundingInfo);
                     if (fundingInfo) {
                         priceData.fundingRate = fundingInfo.fundingRate;
                         priceData.nextFundingTime = fundingInfo.nextFundingTime;
@@ -152,22 +148,27 @@ class BinanceService {
         });
     }
 
-    static async fetchSymbols(type: 'spot' | 'perpetual' = 'spot'): Promise<ExchangeSymbol[]> {
+    public static async fetchSymbols(type: 'spot' | 'perpetual' = 'spot'): Promise<ExchangeSymbol[]> {
         return queueRequest(async () => {
             try {
-                const response = await axios.get(`${API_BASE_URL}/symbols`, {
-                    params: { type }
-                });
-                
-                if (!response.data?.symbols) {
-                    console.error('Invalid response format from Binance symbols API:', response.data);
-                    return [];
-                }
-                
-                return response.data.symbols.map((symbol: any) => ({
-                    ...symbol,
-                    exchange: 'binance'
-                }));
+                console.log('Fetching markets with config:', BinanceService.getInstance().exchange.options);
+                const markets = await BinanceService.getInstance().exchange.loadMarkets();
+                console.log('Markets response received');
+                const symbols = Object.values(markets)
+                    .filter(market => {
+                        if (type === 'perpetual') {
+                            return market.swap && market.quote === 'USDT';
+                        }
+                        return market.spot && market.quote === 'USDT';
+                    })
+                    .map(market => ({
+                        symbol: market.id,
+                        baseAsset: market.base,
+                        quoteAsset: market.quote,
+                        exchange: 'binance'
+                    }));
+
+                return symbols;
             } catch (error) {
                 console.error('Error fetching Binance symbols:', error);
                 return [];
@@ -175,14 +176,14 @@ class BinanceService {
         });
     }
 
-    static async fetchPrices(
+    public static async fetchPrices(
         type: 'spot' | 'perpetual' = 'spot',
         page: number = 1,
         pageSize: number = 10
     ): Promise<PriceData[]> {
         return queueRequest(async () => {
             try {
-                const symbols = await this.fetchSymbols(type);
+                const symbols = await BinanceService.fetchSymbols(type);
                 
                 // 分页处理
                 const startIndex = (page - 1) * pageSize;
@@ -196,35 +197,12 @@ class BinanceService {
                     return !cachedInvalid || (Date.now() - cachedInvalid.timestamp) >= CACHE_EXPIRY;
                 });
 
-                if (validSymbols.length === 0) {
-                    return [];
-                }
+                const pricePromises = validSymbols.map(symbol => 
+                    BinanceService.fetchSinglePrice(symbol.symbol, type)
+                );
 
-                // 获取每个交易对的价格
-                const symbolsToFetch = validSymbols.map(s => s.symbol);
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        symbols: JSON.stringify(symbolsToFetch),
-                        type
-                    }
-                });
-
-                if (!response.data || !Array.isArray(response.data)) {
-                    console.error('Invalid response format:', response.data);
-                    return [];
-                }
-
-                // 转换响应数据为PriceData格式
-                return response.data
-                    .filter((item: any) => item && item.price)
-                    .map((item: any) => ({
-                        symbol: type === 'perpetual' ? `${item.symbol}_PERP` : item.symbol,
-                        price: item.price,
-                        timestamp: Date.now(),
-                        exchange: 'Binance',
-                        type: item.type || type
-                    }));
-
+                const prices = await Promise.all(pricePromises);
+                return prices.filter((price): price is PriceData => price !== null);
             } catch (error) {
                 console.error('Error fetching Binance prices:', error);
                 return [];
@@ -232,108 +210,22 @@ class BinanceService {
         });
     }
 
-    static async getSpotSymbols(): Promise<ExchangeSymbol[]> {
-        return queueRequest(async () => {
-            try {
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        path: 'exchangeInfo'
-                    }
-                });
-
-                if (!response.data?.symbols) {
-                    return [];
-                }
-
-                return response.data.symbols
-                    .filter((symbol: any) => symbol.status === 'TRADING')
-                    .map((symbol: any) => ({
-                        symbol: symbol.symbol,
-                        baseAsset: symbol.baseAsset,
-                        quoteAsset: symbol.quoteAsset
-                    }));
-            } catch (error) {
-                console.error('Error fetching spot symbols:', error);
-                return [];
-            }
-        });
+    public static async getSpotSymbols(): Promise<ExchangeSymbol[]> {
+        return BinanceService.fetchSymbols('spot');
     }
 
-    static async getPerpetualSymbols(): Promise<ExchangeSymbol[]> {
-        return queueRequest(async () => {
-            try {
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        type: 'perpetual'
-                    }
-                });
-
-                if (!response.data.symbols) {
-                    return [];
-                }
-
-                return response.data.symbols.map((item: any) => ({
-                    symbol: item.symbol,
-                    baseAsset: item.baseAsset,
-                    quoteAsset: item.quoteAsset,
-                    exchange: 'binance'
-                }));
-            } catch (error) {
-                console.error('Error fetching perpetual symbols:', error);
-                return [];
-            }
-        });
+    public static async getPerpetualSymbols(): Promise<ExchangeSymbol[]> {
+        return BinanceService.fetchSymbols('perpetual');
     }
 
-    static async getSpotPrices(): Promise<PriceData[]> {
-        return queueRequest(async () => {
-            try {
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        type: 'spot'
-                    }
-                });
-
-                if (!Array.isArray(response.data)) {
-                    return [];
-                }
-
-                return response.data.map((item: any) => ({
-                    symbol: item.symbol,
-                    price: item.price,
-                    exchange: 'binance'
-                }));
-            } catch (error) {
-                console.error('Error fetching spot prices:', error);
-                return [];
-            }
-        });
+    public static async getSpotPrices(): Promise<PriceData[]> {
+        return BinanceService.fetchPrices('spot');
     }
 
-    static async getPerpetualPrices(): Promise<PriceData[]> {
-        return queueRequest(async () => {
-            try {
-                const response = await axios.get(`${API_BASE_URL}`, {
-                    params: {
-                        type: 'perpetual'
-                    }
-                });
-
-                if (!Array.isArray(response.data)) {
-                    return [];
-                }
-
-                return response.data.map((item: any) => ({
-                    symbol: item.symbol,
-                    price: item.price,
-                    exchange: 'binance'
-                }));
-            } catch (error) {
-                console.error('Error fetching perpetual prices:', error);
-                return [];
-            }
-        });
+    public static async getPerpetualPrices(): Promise<PriceData[]> {
+        return BinanceService.fetchPrices('perpetual');
     }
 }
 
+// 导出默认实例
 export default BinanceService;

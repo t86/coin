@@ -1,86 +1,173 @@
-import { PriceData } from '@/types/exchange';
-import DatabaseManager from './database';
-import BinanceService from '@/services/binance';
-import BybitService from '@/services/bybit';
-import OkexService from '@/services/okex';
-import { SymbolNormalizer } from '@/services/symbol-normalizer';
+import { PriceData, ExchangeSymbol, Exchange } from '../types/exchange';
+import { getDatabase } from './database';
+import BinanceService from '../services/binance';
+import BybitService from '../services/bybit';
+import OkexService from '../services/okex';
+import { SymbolNormalizer } from '../services/symbol-normalizer';
 
-class DataSyncService {
-    private static instance: DataSyncService;
+export class DataSyncService {
+    private static instance: DataSyncService | null = null;
+    private static initializationPromise: Promise<DataSyncService> | null = null;
     private syncInterval: NodeJS.Timeout | null = null;
     private symbolSyncInterval: NodeJS.Timeout | null = null;
     private cleanupInterval: NodeJS.Timeout | null = null;
+    private readonly SYNC_INTERVAL = 60000; // 1 minute
+    private readonly SYMBOL_SYNC_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+    private readonly CLEANUP_INTERVAL = 3600000; // 1 hour
 
     private constructor() {}
 
-    public static getInstance(): DataSyncService {
-        if (!DataSyncService.instance) {
-            DataSyncService.instance = new DataSyncService();
+    public static async getInstance(): Promise<DataSyncService> {
+        if (!DataSyncService.initializationPromise) {
+            DataSyncService.initializationPromise = (async () => {
+                if (!DataSyncService.instance) {
+                    DataSyncService.instance = new DataSyncService();
+                    await DataSyncService.instance.initialize();
+                }
+                return DataSyncService.instance;
+            })();
         }
-        return DataSyncService.instance;
+        return DataSyncService.initializationPromise;
     }
 
-    async startSync() {
-        // 初始同步
+    private async initialize() {
+        // 初始化数据库连接
+        const db = await getDatabase();
+        console.log('[DataSyncService] Initialized');
+    }
+
+    public async startSync() {
+        console.log('[DataSyncService] Starting sync service...');
+        
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+        }
+
+        if (this.symbolSyncInterval) {
+            clearInterval(this.symbolSyncInterval);
+        }
+
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+        }
+
+        // 立即执行一次同步
         await this.syncSymbols();
         await this.syncPrices();
 
-        // 设置定期同步
-        this.setupPriceSync();
-        this.setupSymbolSync();
-        this.setupCleanup();
-    }
-
-    private setupPriceSync() {
-        // 每分钟同步价格
+        // 设置定时同步
         this.syncInterval = setInterval(async () => {
-            try {
-                await this.syncPrices();
-            } catch (error) {
-                console.error('Price sync failed:', error);
-            }
-        }, 60000); // 1分钟
-    }
+            await this.syncPrices();
+        }, this.SYNC_INTERVAL);
 
-    private setupSymbolSync() {
-        // 每24小时同步交易对
         this.symbolSyncInterval = setInterval(async () => {
-            try {
-                await this.syncSymbols();
-            } catch (error) {
-                console.error('Symbol sync failed:', error);
-            }
-        }, 24 * 60 * 60 * 1000); // 24小时
-    }
+            await this.syncSymbols();
+        }, this.SYMBOL_SYNC_INTERVAL);
 
-    private setupCleanup() {
-        // 每小时清理旧数据
         this.cleanupInterval = setInterval(async () => {
             try {
-                await DatabaseManager.cleanOldData();
+                const db = await getDatabase();
+                await db.cleanOldData();
             } catch (error) {
-                console.error('Cleanup failed:', error);
+                console.error('Data cleanup failed:', error);
             }
-        }, 3600000); // 1小时
+        }, this.CLEANUP_INTERVAL);
+
+        console.log('[DataSyncService] Sync service started');
     }
 
     private async syncSymbols() {
         try {
-            // 同步现货交易对
-            const spotSymbols = await Promise.all([
-                BinanceService.getSpotSymbols(),
-                BybitService.getSpotSymbols(),
-                OkexService.getSpotSymbols()
-            ]);
-            await DatabaseManager.updateSymbols('spot', this.mergeSymbols(spotSymbols));
+            const db = await getDatabase();
 
-            // 同步永续合约交易对
-            const perpetualSymbols = await Promise.all([
-                BinanceService.getPerpetualSymbols(),
-                BybitService.getPerpetualSymbols(),
-                OkexService.getPerpetualSymbols()
+            // 获取各交易所的交易对
+            const [binanceSpot, binancePerpetual] = await Promise.all([
+                BinanceService.fetchSymbols('spot'),
+                BinanceService.fetchSymbols('perpetual')
             ]);
-            await DatabaseManager.updateSymbols('perpetual', this.mergeSymbols(perpetualSymbols));
+
+            const [okexSpot, okexPerpetual] = await Promise.all([
+                OkexService.fetchSymbols('spot'),
+                OkexService.fetchSymbols('perpetual')
+            ]);
+
+            const [bybitSpot, bybitPerpetual] = await Promise.all([
+                BybitService.fetchSymbols('spot'),
+                BybitService.fetchSymbols('perpetual')
+            ]);
+
+            // 创建符号映射，用于合并相同的交易对
+            const spotSymbolMap = new Map<string, ExchangeSymbol>();
+            const perpetualSymbolMap = new Map<string, ExchangeSymbol>();
+
+            // 处理现货交易对
+            for (const symbol of binanceSpot) {
+                spotSymbolMap.set(symbol.symbol, {
+                    ...symbol,
+                    exchanges: Exchange.Binance
+                });
+            }
+
+            for (const symbol of okexSpot) {
+                const existing = spotSymbolMap.get(symbol.symbol);
+                if (existing) {
+                    existing.exchanges |= Exchange.OKEx;
+                } else {
+                    spotSymbolMap.set(symbol.symbol, {
+                        ...symbol,
+                        exchanges: Exchange.OKEx
+                    });
+                }
+            }
+
+            for (const symbol of bybitSpot) {
+                const existing = spotSymbolMap.get(symbol.symbol);
+                if (existing) {
+                    existing.exchanges |= Exchange.Bybit;
+                } else {
+                    spotSymbolMap.set(symbol.symbol, {
+                        ...symbol,
+                        exchanges: Exchange.Bybit
+                    });
+                }
+            }
+
+            // 处理永续合约交易对
+            for (const symbol of binancePerpetual) {
+                perpetualSymbolMap.set(symbol.symbol, {
+                    ...symbol,
+                    exchanges: Exchange.Binance
+                });
+            }
+
+            for (const symbol of okexPerpetual) {
+                const existing = perpetualSymbolMap.get(symbol.symbol);
+                if (existing) {
+                    existing.exchanges |= Exchange.OKEx;
+                } else {
+                    perpetualSymbolMap.set(symbol.symbol, {
+                        ...symbol,
+                        exchanges: Exchange.OKEx
+                    });
+                }
+            }
+
+            for (const symbol of bybitPerpetual) {
+                const existing = perpetualSymbolMap.get(symbol.symbol);
+                if (existing) {
+                    existing.exchanges |= Exchange.Bybit;
+                } else {
+                    perpetualSymbolMap.set(symbol.symbol, {
+                        ...symbol,
+                        exchanges: Exchange.Bybit
+                    });
+                }
+            }
+
+            // 更新数据库
+            await db.updateSymbols('spot', Array.from(spotSymbolMap.values()));
+            await db.updateSymbols('perpetual', Array.from(perpetualSymbolMap.values()));
+
         } catch (error) {
             console.error('Error syncing symbols:', error);
             throw error;
@@ -89,169 +176,90 @@ class DataSyncService {
 
     private async syncPrices() {
         try {
-            const db = await DatabaseManager.getInstance();
-            const [binanceService, okexService, bybitService] = [
-                new BinanceService(),
-                new OkexService(),
-                new BybitService()
-            ];
+            const db = await getDatabase();
+            const allSymbols = await db.getAllSymbols();
 
-            // 获取所有交易对
-            const symbols = await db.getAllSymbols();
+            // 只获取需要同步的交易对
+            const symbolsToFetch = allSymbols.filter(symbol => symbol.fetch === 1);
 
-            // 并行获取价格和资金费率
-            const pricePromises = symbols.map(async (symbol) => {
-                const normalizedSymbol = symbol.symbol;
-                const prices: PriceData[] = [];
+            // 按交易所分组
+            const symbolsByExchange = {
+                Binance: symbolsToFetch.filter(s => s.exchange === 'Binance'),
+                Bybit: symbolsToFetch.filter(s => s.exchange === 'Bybit'),
+                OKEx: symbolsToFetch.filter(s => s.exchange === 'OKEx')
+            };
 
-                // Binance
-                try {
-                    const [price, fundingRate] = await Promise.all([
-                        binanceService.getPrice(normalizedSymbol),
-                        binanceService.getFundingRate(normalizedSymbol)
-                    ]);
-                    if (price) {
-                        prices.push({
-                            symbol: normalizedSymbol,
-                            price: price,
-                            exchange: 'Binance',
-                            fundingRate: fundingRate?.rate || 0,
-                            nextFundingTime: fundingRate?.nextFundingTime || 0
-                        });
-                    }
-                } catch (error) {
-                    console.error(`Binance sync failed for ${normalizedSymbol}:`, error);
-                }
+            // 并行获取每个交易所的价格
+            const fetchPromises = [];
 
-                // OKEx
-                try {
-                    const [price, fundingRate] = await Promise.all([
-                        okexService.getPrice(normalizedSymbol),
-                        okexService.getFundingRate(normalizedSymbol)
-                    ]);
-                    if (price) {
-                        prices.push({
-                            symbol: normalizedSymbol,
-                            price: price,
-                            exchange: 'OKEx',
-                            fundingRate: fundingRate?.rate || 0,
-                            nextFundingTime: fundingRate?.nextFundingTime || 0
-                        });
-                    }
-                } catch (error) {
-                    console.error(`OKEx sync failed for ${normalizedSymbol}:`, error);
-                }
-
-                // Bybit
-                try {
-                    const [price, fundingRate] = await Promise.all([
-                        bybitService.getPrice(normalizedSymbol),
-                        bybitService.getFundingRate(normalizedSymbol)
-                    ]);
-                    if (price) {
-                        prices.push({
-                            symbol: normalizedSymbol,
-                            price: price,
-                            exchange: 'Bybit',
-                            fundingRate: fundingRate?.rate || 0,
-                            nextFundingTime: fundingRate?.nextFundingTime || 0
-                        });
-                    }
-                } catch (error) {
-                    console.error(`Bybit sync failed for ${normalizedSymbol}:`, error);
-                }
-
-                return {
-                    symbol: normalizedSymbol,
-                    prices,
-                    timestamp: Date.now()
-                };
-            });
-
-            const results = await Promise.all(pricePromises);
-            
-            // 更新数据库
-            for (const result of results) {
-                if (result.prices.length > 0) {
-                    await db.updatePrices(result);
-                }
+            // Binance
+            if (symbolsByExchange.Binance.length > 0) {
+                fetchPromises.push(this.fetchExchangePrices(
+                    symbolsByExchange.Binance,
+                    BinanceService.fetchSinglePrice,
+                    'Binance'
+                ));
             }
+
+            // Bybit
+            if (symbolsByExchange.Bybit.length > 0) {
+                fetchPromises.push(this.fetchExchangePrices(
+                    symbolsByExchange.Bybit,
+                    BybitService.fetchSinglePrice,
+                    'Bybit'
+                ));
+            }
+
+            // OKEx
+            if (symbolsByExchange.OKEx.length > 0) {
+                fetchPromises.push(this.fetchExchangePrices(
+                    symbolsByExchange.OKEx,
+                    OkexService.fetchSinglePrice,
+                    'OKEx'
+                ));
+            }
+
+            await Promise.all(fetchPromises);
+            console.log('[DataSyncService] Price sync completed');
         } catch (error) {
-            console.error('Price sync failed:', error);
-            throw error;
+            console.error('[DataSyncService] Price sync failed:', error);
         }
     }
 
-    private normalizeSymbol(symbol: string): string {
-        // Remove any hyphens and convert to uppercase
-        return symbol.replace(/-/g, '').toUpperCase();
-    }
+    private async fetchExchangePrices(
+        symbols: Array<{ symbol: string; type: 'spot' | 'perpetual' }>,
+        fetchPrice: (symbol: string, type: 'spot' | 'perpetual') => Promise<PriceData | null>,
+        exchange: string
+    ) {
+        try {
+            const updates = [];
 
-    private normalizeExchangePrices(prices: PriceData[]): PriceData[] {
-        return prices.map(price => ({
-            ...price,
-            symbol: this.normalizeSymbol(price.symbol)
-        }));
-    }
-
-    private mergeSymbols(symbolsArray: any[][]): any[] {
-        const symbolMap = new Map();
-        const exchanges = ['binance', 'bybit', 'okex'];
-        
-        symbolsArray.forEach((symbols, index) => {
-            const exchange = exchanges[index];
-            symbols.forEach(symbol => {
-                const normalizedInfo = SymbolNormalizer.normalizeSymbolInfo(symbol, exchange);
-                const key = normalizedInfo.normalizedSymbol;
-                
-                if (symbolMap.has(key)) {
-                    const existing = symbolMap.get(key);
-                    existing.exchanges = existing.exchanges || [];
-                    existing.exchanges.push(exchange);
-                    existing.originalSymbols = existing.originalSymbols || {};
-                    existing.originalSymbols[exchange] = symbol.symbol;
-                } else {
-                    symbolMap.set(key, {
-                        symbol: normalizedInfo.normalizedSymbol,
-                        baseAsset: normalizedInfo.baseAsset,
-                        quoteAsset: normalizedInfo.quoteAsset,
-                        exchanges: [exchange],
-                        originalSymbols: { [exchange]: symbol.symbol }
+            for (const symbol of symbols) {
+                const price = await fetchPrice(symbol.symbol, symbol.type);
+                if (price) {
+                    updates.push({
+                        exchange,
+                        data: {
+                            symbol: symbol.symbol,
+                            price: price.price,
+                            fundingRate: symbol.type === 'perpetual' ? price.fundingRate : null
+                        }
                     });
                 }
-            });
-        });
+            }
 
-        return Array.from(symbolMap.values());
+            if (updates.length > 0) {
+                const db = await getDatabase();
+                await Promise.all(updates.map(update => 
+                    db.updatePrices(update.data.symbol, [update.data], update.exchange)
+                ));
+            }
+        } catch (error) {
+            console.error(`Error fetching prices for ${exchange}:`, error);
+        }
     }
 
-    private mergePrices(pricesArray: PriceData[][]): PriceData[] {
-        const priceMap = new Map();
-        const exchanges = ['binance', 'bybit', 'okex'];
-
-        pricesArray.forEach((prices, index) => {
-            const exchange = exchanges[index];
-            prices.forEach(price => {
-                const normalizedSymbol = SymbolNormalizer.normalize(price.symbol);
-                
-                if (priceMap.has(normalizedSymbol)) {
-                    const existing = priceMap.get(normalizedSymbol);
-                    existing[`${exchange}Price`] = price.price;
-                } else {
-                    priceMap.set(normalizedSymbol, {
-                        symbol: normalizedSymbol,
-                        binancePrice: exchange === 'binance' ? price.price : null,
-                        bybitPrice: exchange === 'bybit' ? price.price : null,
-                        okexPrice: exchange === 'okex' ? price.price : null
-                    });
-                }
-            });
-        });
-
-        return Array.from(priceMap.values());
-    }
-
-    stopSync() {
+    public stopSync() {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
@@ -264,7 +272,8 @@ class DataSyncService {
             clearInterval(this.cleanupInterval);
             this.cleanupInterval = null;
         }
+        console.log('[DataSyncService] Sync service stopped');
     }
 }
 
-export default DataSyncService.getInstance();
+export default DataSyncService;

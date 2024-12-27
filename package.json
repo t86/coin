@@ -2,21 +2,25 @@
   "name": "coin",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "npm rebuild better-sqlite3"
+    "postinstall": "npm rebuild better-sqlite3",
+    "sync": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node --esm scripts/sync-prices.ts"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.8",
+    "@types/node-fetch": "^2.6.12",
     "axios": "^1.7.9",
     "better-sqlite3": "^8.7.0",
-    "ccxt": "^4.4.38",
+    "ccxt": "^4.4.43",
     "https-proxy-agent": "^7.0.6",
     "next": "latest",
     "node-fetch": "^3.3.2",
+    "p-queue": "^8.0.1",
     "react": "latest",
     "react-dom": "latest",
     "sqlite3": "^5.1.7"
@@ -29,6 +33,7 @@
     "autoprefixer": "latest",
     "postcss": "latest",
     "tailwindcss": "latest",
+    "ts-node": "^10.9.2",
     "typescript": "latest"
   }
 }

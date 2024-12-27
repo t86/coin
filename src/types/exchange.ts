@@ -1,16 +1,25 @@
-export interface PriceData {
-    symbol: string;
-    price: number;
-    exchange: string;
-    fundingRate?: number;
-    nextFundingTime?: number;
+export enum Exchange {
+    Binance = 1,  // 0001
+    OKEx = 2,     // 0010
+    Bybit = 4     // 0100
 }
 
 export interface ExchangeSymbol {
     symbol: string;
-    baseAsset?: string;
-    quoteAsset?: string;
-    exchange?: string;
+    baseAsset: string;
+    quoteAsset: string;
+    marketType: 'spot' | 'perpetual';
+    exchanges: number;  // 使用位运算表示支持的交易所
+}
+
+export interface PriceData {
+    symbol: string;
+    price: number;
+    exchange: string;
+    timestamp: number;
+    type: 'spot' | 'perpetual';
+    fundingRate?: string;
+    nextFundingTime?: number;
 }
 
 export interface ConsolidatedPriceData {
