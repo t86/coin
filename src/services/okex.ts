@@ -67,7 +67,7 @@ class OkexService {
         return OkexService.instance;
     }
 
-    public static get name(): string {
+    public static get serviceName(): string {
         return 'OKEx';
     }
 

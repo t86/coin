@@ -70,7 +70,7 @@ class BybitService {
         return BybitService.instance;
     }
 
-    public static get name(): string {
+    public static get serviceName(): string {
         return 'Bybit';
     }
 

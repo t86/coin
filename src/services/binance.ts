@@ -1,4 +1,4 @@
-import ccxt from 'ccxt';
+import ccxt, { Market } from 'ccxt';
 import axios from 'axios';
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -50,7 +50,7 @@ function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 class BinanceService {
     private static instance: BinanceService;
-    private exchange: ccxt.binance;
+    private exchange: ccxt.Exchange;
 
     private constructor() {
         this.exchange = new ccxt.binance({
@@ -70,7 +70,7 @@ class BinanceService {
         return BinanceService.instance;
     }
 
-    public static get name(): string {
+    public static get serviceName(): string {
         return 'Binance';
     }
 
@@ -148,31 +148,24 @@ class BinanceService {
         });
     }
 
-    public static async fetchSymbols(type: 'spot' | 'perpetual' = 'spot'): Promise<ExchangeSymbol[]> {
+    public static async fetchSymbols(type: 'spot' | 'perpetual'): Promise<ExchangeSymbol[]> {
         return queueRequest(async () => {
-            try {
-                console.log('Fetching markets with config:', BinanceService.getInstance().exchange.options);
-                const markets = await BinanceService.getInstance().exchange.loadMarkets();
-                console.log('Markets response received');
-                const symbols = Object.values(markets)
-                    .filter(market => {
-                        if (type === 'perpetual') {
-                            return market.swap && market.quote === 'USDT';
-                        }
-                        return market.spot && market.quote === 'USDT';
-                    })
-                    .map(market => ({
-                        symbol: market.id,
-                        baseAsset: market.base,
-                        quoteAsset: market.quote,
-                        exchange: 'binance'
-                    }));
-
-                return symbols;
-            } catch (error) {
-                console.error('Error fetching Binance symbols:', error);
-                return [];
-            }
+            const markets = await BinanceService.getInstance().exchange.loadMarkets();
+            
+            return Object.values(markets as Record<string, Market>)
+                .filter(market => {
+                    if (type === 'perpetual') {
+                        return market.swap && market.quote === 'USDT';
+                    }
+                    return market.spot && market.quote === 'USDT';
+                })
+                .map(market => ({
+                    symbol: market.id,
+                    baseAsset: market.base,
+                    quoteAsset: market.quote,
+                    marketType: type,
+                    exchanges: 1 // Binance = 1
+                }));
         });
     }
 

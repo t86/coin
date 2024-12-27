@@ -9,14 +9,14 @@ export interface ExchangeSymbol {
     baseAsset: string;
     quoteAsset: string;
     marketType: 'spot' | 'perpetual';
-    exchanges: number;  // 使用位运算表示支持的交易所
+    exchanges: number;  // 位运算表示支持的交易所
 }
 
 export interface PriceData {
     symbol: string;
-    price: number;
-    exchange: string;
+    price: number | string;
     timestamp: number;
+    exchange: string;
     type: 'spot' | 'perpetual';
     fundingRate?: string;
     nextFundingTime?: number;
@@ -43,7 +43,9 @@ export interface ConsolidatedPriceData {
 
 export interface CoinPriceComparison {
     symbol: string;
-    prices: PriceData[];
+    binancePrice?: PriceData;
+    okexPrice?: PriceData;
+    bybitPrice?: PriceData;
     timestamp: number;
 }
 
@@ -61,4 +63,9 @@ export interface ExchangeResponse {
 export interface TabOption {
     key: 'spot' | 'perpetual';
     label: string;
+}
+
+export interface FundingRateData {
+    fundingRate: string;
+    nextFundingTime: number;
 }

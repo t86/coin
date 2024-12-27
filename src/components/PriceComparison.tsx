@@ -5,7 +5,9 @@ interface PriceComparisonProps {
     data: CoinPriceComparison;
 }
 
-export const PriceComparison: React.FC<PriceComparisonProps> = ({ data }) => {
+export function PriceComparison({ data }: PriceComparisonProps) {
+    const binancePrice = data.binancePrice?.price;
+
     const calculatePremium = (price: string, basePrice: string) => {
         const priceNum = Number(price);
         const basePriceNum = Number(basePrice);
@@ -30,9 +32,6 @@ export const PriceComparison: React.FC<PriceComparisonProps> = ({ data }) => {
         return 'text-gray-600';
     };
 
-    // 使用 Binance 作为基准价格
-    const binancePrice = data.binance?.price;
-
     return (
         <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div className="grid grid-cols-7 gap-4 items-center">
@@ -45,7 +44,7 @@ export const PriceComparison: React.FC<PriceComparisonProps> = ({ data }) => {
                 <div className="col-span-2">
                     <div className="flex flex-col">
                         <span className="text-sm font-medium text-gray-500">Binance</span>
-                        <span className="text-base font-semibold">${formatPrice(data.binance?.price)}</span>
+                        <span className="text-base font-semibold">${formatPrice(data.binancePrice?.price)}</span>
                     </div>
                 </div>
 
@@ -81,4 +80,4 @@ export const PriceComparison: React.FC<PriceComparisonProps> = ({ data }) => {
             </div>
         </div>
     );
-};
+}

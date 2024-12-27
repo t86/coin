@@ -34,17 +34,26 @@ export default function Home() {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const fetchPrices = async () => {
         try {
             setLoading(true);
+            setError(null);
             const response = await fetch(
                 `/api/prices?marketType=${marketType}&page=${currentPage}&pageSize=10&search=${searchQuery}`
             );
+            if (!response.ok) {
+                throw new Error('获取价格数据失败');
+            }
             const newData = await response.json();
+            if (!newData.success) {
+                throw new Error(newData.message || '获取价格数据失败');
+            }
             setData(newData);
         } catch (error) {
             console.error('Error fetching prices:', error);
+            setError(error instanceof Error ? error.message : '获取价格数据失败');
         } finally {
             setLoading(false);
         }
@@ -110,10 +119,17 @@ export default function Home() {
             </div>
 
             {/* 自动刷新提示 */}
-            <div className="flex justify-end mb-4">
+            <div className="flex justify-between mb-4">
+                <div>
+                    {error && (
+                        <div className="text-red-500 text-sm">
+                            {error}
+                        </div>
+                    )}
+                </div>
                 <span className="text-sm text-gray-500 flex items-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                    每10秒自动刷新
+                    <div className={`w-2 h-2 ${loading ? 'bg-yellow-500' : 'bg-green-500'} rounded-full mr-2`}></div>
+                    {loading ? '正在刷新...' : '每10秒自动刷新'}
                 </span>
             </div>
 
@@ -143,7 +159,28 @@ export default function Home() {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {data?.data.prices.map((item, index) => (
+                        {loading && !data?.data?.prices && (
+                            <tr>
+                                <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                                    加载中...
+                                </td>
+                            </tr>
+                        )}
+                        {!loading && error && (
+                            <tr>
+                                <td colSpan={6} className="px-6 py-4 text-center text-red-500">
+                                    {error}
+                                </td>
+                            </tr>
+                        )}
+                        {!loading && !error && data?.data?.prices?.length === 0 && (
+                            <tr>
+                                <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                                    暂无数据
+                                </td>
+                            </tr>
+                        )}
+                        {!loading && !error && data?.data?.prices?.map((item, index) => (
                             <tr key={item.symbol} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                     {item.symbol}
@@ -180,13 +217,13 @@ export default function Home() {
             </div>
 
             {/* 简化的分页控件 */}
-            {data && (
+            {data?.data && (
                 <div className="mt-4 flex justify-center items-center space-x-4">
                     <button
                         onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
+                        disabled={currentPage === 1 || loading}
                         className={`px-4 py-2 border rounded-md ${
-                            currentPage === 1
+                            currentPage === 1 || loading
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-600 hover:bg-gray-50'
                         }`}
@@ -194,28 +231,19 @@ export default function Home() {
                         上一页
                     </button>
                     <span className="text-sm text-gray-600">
-                        第 {currentPage} 页 / 共 {data ? Math.ceil(data.data.total / data.data.pageSize) : 1} 页
+                        第 {currentPage} 页 / 共 {Math.ceil(data.data.total / data.data.pageSize)} 页
                     </span>
                     <button
                         onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={!data || currentPage >= Math.ceil(data.data.total / data.data.pageSize)}
+                        disabled={loading || currentPage >= Math.ceil(data.data.total / data.data.pageSize)}
                         className={`px-4 py-2 border rounded-md ${
-                            !data || currentPage >= Math.ceil(data.data.total / data.data.pageSize)
+                            loading || currentPage >= Math.ceil(data.data.total / data.data.pageSize)
                                 ? 'text-gray-300 cursor-not-allowed'
                                 : 'text-gray-600 hover:bg-gray-50'
                         }`}
                     >
                         下一页
                     </button>
-                </div>
-            )}
-
-            {/* Loading 状态 */}
-            {loading && (
-                <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center">
-                    <div className="bg-white p-4 rounded-lg">
-                        加载中...
-                    </div>
                 </div>
             )}
         </main>

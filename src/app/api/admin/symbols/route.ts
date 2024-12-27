@@ -15,10 +15,12 @@ export async function PUT(request: NextRequest) {
         }
 
         // 更新交易对的交易所支持情况
-        await db.updateSymbols(marketType, [{
-            ...existingSymbol,
+        await db.updateSymbol(
+            existingSymbol.exchange,
+            existingSymbol.symbol,
+            marketType,
             exchanges
-        }]);
+        );
 
         return NextResponse.json({ success: true });
     } catch (error) {

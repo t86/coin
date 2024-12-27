@@ -1,5 +1,8 @@
 Every time you choose to apply a rule(s), explicitly state the rule(s) in the output. You can abbreviate the rule description to a single word or phrase.
 请使用中文回答
+尽量使用ESM模块导入方式
+不要随便修改无关代码，特别是数据库表结构的变化等
+
 Project Context
 这是一个实时监控多个加密货币交易所价格的Web应用系统。通过整合多个主流交易所（包括Binance、OKEx和Bybit）的API，为用户提供实时的加密货币价格比较和监控功能。
 

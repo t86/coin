@@ -1,19 +1,15 @@
-import DataSyncService from './data-sync-service';
-import { getDatabase } from './database';
+// CommonJS version for scripts
+const DataSyncService = require('../../src/lib/data-sync-service');
+const { getDatabase } = require('../../src/lib/database');
 
-export async function initializeServices() {
+async function initializeServices() {
     try {
         console.log('Initializing services...');
-
-        // 初始化数据库
         const db = await getDatabase();
         console.log('Database initialized');
-
-        // 初始化数据同步服务
         const syncService = await DataSyncService.getInstance();
         await syncService.startSync();
         console.log('Data sync service started');
-
         return { db, syncService };
     } catch (error) {
         console.error('Error initializing services:', error);
@@ -21,7 +17,4 @@ export async function initializeServices() {
     }
 }
 
-// 添加 CommonJS 兼容性支持
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { initializeServices };
-}
+module.exports = { initializeServices }; 
