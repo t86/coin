@@ -292,6 +292,48 @@ class DataSyncService {
             throw error;
         }
     }
+
+    public async updatePrice(data: {
+        symbol: string;
+        marketType: string;
+        price: number;
+        exchangeId: string;
+        fundingRate?: string;
+        nextFundingTime?: number;
+    }): Promise<void> {
+        // 统一将 okx 转换为 okex
+        const exchangeId = data.exchangeId.toLowerCase() === 'okx' ? 'okex' : data.exchangeId.toLowerCase();
+        const priceColumn = `${exchangeId}_price`;
+        const fundingRateColumn = `${exchangeId}_funding_rate`;
+        const nextFundingTimeColumn = `${exchangeId}_next_funding_time`;
+
+        const stmt = this.db.prepare(`
+            INSERT INTO prices (
+                symbol,
+                marketType,
+                price,
+                exchangeId,
+                fundingRate,
+                nextFundingTime
+            ) VALUES (
+                @symbol,
+                @marketType,
+                @price,
+                @exchangeId,
+                @fundingRate,
+                @nextFundingTime
+            )
+        `);
+
+        await stmt.run({
+            symbol: data.symbol,
+            marketType: data.marketType,
+            price: data.price,
+            exchangeId: data.exchangeId,
+            fundingRate: data.fundingRate,
+            nextFundingTime: data.nextFundingTime
+        });
+    }
 }
 
 export default DataSyncService;

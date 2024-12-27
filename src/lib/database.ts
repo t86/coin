@@ -241,6 +241,25 @@ export class DatabaseManager {
         `);
         stmt.run(fetch, symbol, marketType);
     }
+
+    public prepare(sql: string): Database.Statement {
+        return this.db.prepare(sql);
+    }
+
+    public all(sql: string, params: any[] = []): any[] {
+        const stmt = this.prepare(sql);
+        return stmt.all(...params);
+    }
+
+    public get(sql: string, params: any[] = []): any {
+        const stmt = this.prepare(sql);
+        return stmt.get(...params);
+    }
+
+    public run(sql: string, params: any[] = []): any {
+        const stmt = this.prepare(sql);
+        return stmt.run(...params);
+    }
 }
 
 export async function getDatabase(): Promise<DatabaseManager> {

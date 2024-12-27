@@ -1,82 +1,70 @@
-import { NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { NextRequest } from 'next/server';
+import { DatabaseManager } from '@/lib/database';
 
-export async function GET(request: Request) {
-    // 检查服务是否已初始化
-    // if (!global.__servicesInitialized) {
-    //     return NextResponse.json(
-    //         { status: 'error', message: 'Services are still initializing' },
-    //         { status: 503 } // Service Unavailable
-    //     );
-    // }
-
-    const { searchParams } = new URL(request.url);
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
     const marketType = searchParams.get('marketType') || 'spot';
     const page = parseInt(searchParams.get('page') || '1');
-    const pageSize = parseInt(searchParams.get('pageSize') || '10');
-    const search = searchParams.get('search') || '';
+    const pageSize = parseInt(searchParams.get('pageSize') || '20');
+    const db = await DatabaseManager.getInstance();
 
-    try {
-        // 获取数据库实例
-        const db = await getDatabase();
-        
-        // 从缓存获取数据
-        const symbols = db.getCachedSymbols(marketType as 'spot' | 'perpetual') || [];
-        const prices = db.getCachedPrices(marketType as 'spot' | 'perpetual') || [];
+    // 获取总记录数
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM prices p
+      JOIN symbols s ON p.symbol = s.symbol AND p.market_type = s.market_type
+      WHERE p.market_type = ? AND s.fetch = 1
+    `;
+    const { total } = db.get(countQuery, [marketType]);
 
-        // 过滤并分页
-        const filteredSymbols = symbols.filter(symbol => 
-            symbol?.symbol?.toLowerCase().includes(search.toLowerCase())
-        );
+    // 计算分页
+    const offset = (page - 1) * pageSize;
+    const totalPages = Math.ceil(total / pageSize);
 
-        const total = filteredSymbols.length;
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const paginatedSymbols = filteredSymbols.slice(startIndex, endIndex);
+    // 获取分页数据
+    const query = `
+      SELECT p.*, s.base_asset as baseAsset, s.quote_asset as quoteAsset
+      FROM prices p
+      JOIN symbols s ON p.symbol = s.symbol AND p.market_type = s.market_type
+      WHERE p.market_type = ? AND s.fetch = 1
+      ORDER BY p.symbol ASC
+      LIMIT ? OFFSET ?
+    `;
 
+    const prices = db.all(query, [marketType, pageSize, offset]);
 
-        // 获取分页后的价格数据
-        const paginatedData = paginatedSymbols.map(symbol => {
-            const price = prices.find(p => p?.symbol === symbol?.symbol);
-            console.log('price', price);
-            return {
-                symbol: symbol?.symbol || '',
-                baseAsset: symbol?.baseAsset || '',
-                quoteAsset: symbol?.quoteAsset || '',
-                prices: {
-                    binance: price?.binance_price || null,
-                    okex: price?.okex_price || null,
-                    bybit: price?.bybit_price || null
-                },
-                fundingRates: marketType === 'perpetual' ? {
-                    binance: price?.binance_funding_rate || null,
-                    okex: price?.okex_funding_rate || null,
-                    bybit: price?.bybit_funding_rate || null
-                } : null
-            };
-        });
-
-        return NextResponse.json({
-            success: true,
-            data: {
-                total,
-                page,
-                pageSize,
-                symbols: paginatedSymbols,
-                prices: paginatedData
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching price data:', error);
-        return NextResponse.json({
-            success: false,
-            data: {
-                total: 0,
-                page,
-                pageSize,
-                symbols: [],
-                prices: []
-            }
-        });
-    }
+    return Response.json({
+      success: true,
+      data: {
+        prices: prices.map(price => ({
+          symbol: price.symbol,
+          baseAsset: price.baseAsset,
+          quoteAsset: price.quoteAsset,
+          prices: {
+            binance: price.binance_price,
+            okex: price.okex_price,
+            bybit: price.bybit_price
+          },
+          fundingRateDiffs: marketType === 'perpetual' ? {
+            binanceOkex: price.binance_funding_rate && price.okex_funding_rate ? 
+              parseFloat(price.binance_funding_rate) - parseFloat(price.okex_funding_rate) : null,
+            binanceBybit: price.binance_funding_rate && price.bybit_funding_rate ? 
+              parseFloat(price.binance_funding_rate) - parseFloat(price.bybit_funding_rate) : null,
+            okexBybit: price.okex_funding_rate && price.bybit_funding_rate ? 
+              parseFloat(price.okex_funding_rate) - parseFloat(price.bybit_funding_rate) : null,
+          } : null
+        })),
+        pagination: {
+          total,
+          page,
+          pageSize,
+          totalPages
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching prices:', error);
+    return Response.json({ success: false, error: 'Failed to fetch prices' }, { status: 500 });
+  }
 }

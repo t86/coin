@@ -1,30 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/database';
+import { NextRequest } from 'next/server';
+import { DatabaseManager } from '@/lib/database';
 
-export async function PUT(request: NextRequest) {
-    try {
-        const { symbol, marketType, exchanges } = await request.json();
-        const db = await getDatabase();
-        
-        // 获取现有的交易对信息
-        const existingSymbols = await db.getSymbols(marketType);
-        const existingSymbol = existingSymbols.find(s => s.symbol === symbol);
-        
-        if (!existingSymbol) {
-            return NextResponse.json({ error: '交易对不存在' }, { status: 404 });
-        }
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const marketType = searchParams.get('marketType') || 'spot';
+    const search = searchParams.get('search') || '';
+    const baseAsset = searchParams.get('baseAsset');
+    const quoteAsset = searchParams.get('quoteAsset');
 
-        // 更新交易对的交易所支持情况
-        await db.updateSymbol(
-            existingSymbol.exchange,
-            existingSymbol.symbol,
-            marketType,
-            exchanges
-        );
+    const db = await DatabaseManager.getInstance();
 
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error('Error updating symbol:', error);
-        return NextResponse.json({ error: '更新失败' }, { status: 500 });
+    let query = `
+      SELECT * FROM symbols 
+      WHERE market_type = ?
+    `;
+    const params: any[] = [marketType];
+
+    if (search) {
+      query += ` AND symbol LIKE ?`;
+      params.push(`%${search}%`);
     }
+
+    if (baseAsset && baseAsset !== 'all') {
+      query += ` AND base_asset = ?`;
+      params.push(baseAsset);
+    }
+
+    if (quoteAsset && quoteAsset !== 'all') {
+      query += ` AND quote_asset = ?`;
+      params.push(quoteAsset);
+    }
+
+    query += ` ORDER BY symbol ASC`;
+
+    const symbols = db.all(query, params);
+
+    return Response.json(symbols.map(symbol => ({
+      symbol: symbol.symbol,
+      marketType: symbol.market_type,
+      baseAsset: symbol.base_asset,
+      quoteAsset: symbol.quote_asset,
+      exchanges: symbol.exchanges,
+      fetch: symbol.fetch
+    })));
+  } catch (error) {
+    console.error('Error fetching symbols:', error);
+    return Response.json({ success: false, error: 'Failed to fetch symbols' }, { status: 500 });
+  }
 }
